@@ -1,0 +1,2525 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+ 
+ 
+*Load libraries* IMPORTANT --> DO NOT SKIP
+---
+```{r, include=F}
+library(dplyr)
+library(plyr)
+library(ggplot2)
+library(ggfortify)
+library(lme4)
+library(gridExtra)
+library(visreg)
+library(reshape)
+```
+
+*Load data* IMPORTANT --> DO NOT SKIP
+---
+```{r}
+phen <- read.table("phen.txt", header=T) #non-transformed individual traits
+phentr <- read.table("phentr.txt", header=T) #transformed individual traits
+pc_mean <-read.table("pc_mean.txt", header=T) #population mean traits + bioclimatic variables
+pc_meantr <- read.table("pc_meantr.txt", header=T)#transformed population mean traits + (non-transformed) bioclimatic variables
+phen_ho <- read.table("phen_ho.txt", header=T) #non-transformed individual trait values including individually calculated heterozygosity (#heterozygote/#total called genotypes)
+pcho_mean<- read.table("pcho_mean.txt",header=T)
+climfile <- read.table("clim.txt", header=T)
+phencl <-  read.table("phencl.txt", header=T)
+phentrcl <-  read.table("phentrcl.txt", header=T)
+```
+
+*Create subsets* IMPORTANT --> DO NOT SKIP
+---
+```{r}
+phentr_NA <- phentr[which(phentr$Range == 'Native'),]
+phentr_EU <- phentr[which(phentr$Range == 'Europe'),]
+phentr_AU <- phentr[which(phentr$Range == 'Australia'),]
+phenC<- phen[which(phen$Treatment == 'C'),]
+
+pc_meanC<- pc_mean[which(pc_mean$Treatment == 'C'),]
+pc_mean_EU <- pc_mean[which(pc_mean$Range == 'Europe'),]
+pc_mean_AU <- pc_mean[which(pc_mean$Range == 'Australia'),]
+
+pc_meantr_NA <- pc_meantr[which(pc_meantr$Range == 'Native'),]
+pc_meantr_EU <- pc_meantr[which(pc_meantr$Range == 'Europe'),]
+pc_meantr_AU <- pc_meantr[which(pc_meantr$Range == 'Australia'),]
+
+pc_meantrC <- pc_meantr[which(pc_meantr$Treatment == 'C'),]
+
+phencl_NA <- phencl[which(phencl$Range == 'Native'),]
+phencl_EU <- phencl[which(phencl$Range == 'Europe'),]
+phencl_AU <- phencl[which(phencl$Range == 'Australia'),]
+
+
+phenclho <- left_join(phen_ho, climfile, by="Pop")
+phenclho_NA <- phenclho[which(phenclho$Range.x == 'Native'),]
+phenclho_EU <- phenclho[which(phenclho$Range.x == 'Europe'),]
+phenclho_AU <- phenclho[which(phenclho$Range.x == 'Australia'),]
+
+pcho_NA <- pcho_mean[which(pcho_mean$Range == 'Native'),]
+pcho_EU <- pcho_mean[which(pcho_mean$Range == 'Europe'),]
+pcho_AU <- pcho_mean[which(pcho_mean$Range == 'Australia'),]
+```
+
+  
+*Constitituve partial res range*
+---
+```{r}
+# Number of peaks
+phendummy<- pc_mean[ ,which(names(pc_mean) %in% c("Peaks","E_Latitudeabs","q","Range"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lmer((Peaks) ~  E_Latitudeabs + Range + (1 | q), data = phendummy)
+v= visreg(m, plot = FALSE)
+vr = v[[2]]
+
+pdf("_Graph/peaksrange_res.pdf",height=3,width = 2)
+ggplot(vr$res, aes(Range, (visregRes), color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(vr$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +
+ scale_y_continuous(limits = c(27,47))
+dev.off()
+
+# PeakArea
+phendummy<- pc_mean[ ,which(names(pc_mean) %in% c("PeakArea","E_Latitudeabs","q","Range"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+phendummy$PeakArea = phendummy$PeakArea
+m = lmer(sqrt(PeakArea) ~   Range + (1 | q), data = phendummy)
+v= visreg(m, plot = FALSE)
+vr = v[[1]]
+
+
+pdf("_Graph/peakArange_res.pdf",height=3,width =2)
+ggplot(vr$res, aes(Range, (visregRes^2)/10000000, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(vr$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +
+  scale_y_sqrt()
+
+dev.off()
+
+# Trichome
+phendummy<- pc_mean[ ,which(names(pc_mean) %in% c("Trichome","E_Latitudeabs","q","Range"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lmer(log(Trichome) ~   Range + (1 | q), data = phendummy)
+v= visreg(m, plot = FALSE)
+vr = v[[1]]
+
+pdf("_Graph/trichrange_res.pdf",height=3,width =2)
+ggplot(vr$res, aes(Range, exp(visregRes), color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(vr$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +
+        scale_y_log10(limits = c(60,200), breaks=seq(50,200,25))
+
+dev.off()
+```
+
+Major compounds
+
+```{r}
+# A15.7
+phendummy<- pc_mean[ ,which(names(pc_mean) %in% c("A15.7","E_Latitudeabs","q","Range"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+phendummy$A15.7 = phendummy$A15.7/1000
+m = lmer(sqrt(A15.7) ~   Range + (1 | q), data = phendummy)
+v= visreg(m, plot = FALSE)
+vr = v[[1]]
+
+pdf("_Graph/A15.7_res.pdf",height=3,width =2)
+ggplot(vr$res, aes(Range, (visregRes^2)/10000, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(vr$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +
+  scale_y_continuous(limits=c(0,18), breaks = c(0,.5,1,2,4,8,16))+
+  coord_trans(y = scales::log1p_trans())
+dev.off()
+
+# A17.4
+phendummy<- pc_mean[ ,which(names(pc_mean) %in% c("A17.4","E_Latitudeabs","q","Range"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+phendummy$A17.4 = phendummy$A17.4/1000
+m = lmer(log(A17.4) ~  E_Latitudeabs + I(E_Latitudeabs^2)+ Range + (1 | q), data = phendummy)
+v= visreg(m, plot = FALSE)
+vr = v[[2]]
+
+pdf("_Graph/A17.4_res.pdf",height=3,width =2)
+ggplot(vr$res, aes(Range, exp(visregRes)/10000, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(vr$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +
+  scale_y_continuous(limits=c(0,18), breaks = c(0,.5,1,2,4,8,16))+
+  coord_trans(y = scales::log1p_trans())
+dev.off()
+
+# A17.8
+phendummy<- pc_mean[ ,which(names(pc_mean) %in% c("A17.8","E_Latitudeabs","q","Range"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+phendummy$A17.8 = phendummy$A17.8/1000
+m = lmer(log(A17.8) ~  E_Latitudeabs + I(E_Latitudeabs^2)+ Range + (1 | q), data = phendummy)
+v= visreg(m, plot = FALSE)
+vr = v[[2]]
+
+pdf("_Graph/A17.8_res.pdf",height=3,width =2)
+ggplot(vr$res, aes(Range, exp(visregRes)/10000, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(vr$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +
+  scale_y_continuous(limits=c(0,18), breaks = c(0,.5,1,2,4,8,16))+
+  coord_trans(y = scales::log1p_trans())
+dev.off()
+
+# A18.3
+phendummy<- pc_mean[ ,which(names(pc_mean) %in% c("A18.3","E_Latitudeabs","q","Range"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+phendummy$A18.3 = phendummy$A18.3/1000
+m = lmer(sqrt(A18.3) ~  Range + (1 | q), data = phendummy)
+v= visreg(m, plot = FALSE)
+vr = v[[1]]
+
+pdf("_Graph/A18.3_res.pdf",height=3,width =2)
+ggplot(vr$res, aes(Range, (visregRes^2)/10000, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(vr$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +
+  scale_y_continuous(limits=c(0,18), breaks = c(0,.5,1,2,4,8,16))+
+  coord_trans(y = scales::log1p_trans())
+dev.off()
+
+
+# A18.6
+phendummy<- pc_mean[ ,which(names(pc_mean) %in% c("A18.6","E_Latitudeabs","q","Range"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+phendummy$A18.6 = phendummy$A18.6/1000
+m = lmer(sqrt(A18.6) ~  E_Latitudeabs + I(E_Latitudeabs^2)+ Range + (1 | q), data = phendummy)
+v= visreg(m, plot = FALSE)
+vr = v[[2]]
+
+pdf("_Graph/A18.6_res.pdf",height=3,width =2)
+ggplot(vr$res, aes(Range, (visregRes^2)/10000, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(vr$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +
+  scale_y_continuous(limits=c(0,18), breaks = c(0,.5,1,2,4,8,16))+
+  coord_trans(y = scales::log1p_trans())
+dev.off()
+
+# A18.8
+phendummy<- pc_mean[ ,which(names(pc_mean) %in% c("A18.8","E_Latitudeabs","q","Range"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+phendummy$A18.8 = phendummy$A18.8/1000
+m = lmer(sqrt(A18.8) ~   Range + (1 | q), data = phendummy)
+v= visreg(m, plot = FALSE)
+vr = v[[1]]
+
+pdf("_Graph/A18.8_res.pdf",height=3,width =2)
+ggplot(vr$res, aes(Range, (visregRes^2)/10000, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(vr$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +
+  scale_y_continuous(limits=c(0,18), breaks = c(0,.5,1,2,4,8,16))+
+  coord_trans(y = scales::log1p_trans())
+dev.off()
+
+# A21.5
+phendummy<- pc_mean[ ,which(names(pc_mean) %in% c("A21.5","E_Latitudeabs","q","Range"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+phendummy$A21.5 = phendummy$A21.5/1000
+m = lmer(sqrt(A21.5) ~  E_Latitudeabs+ Range + (1 | q), data = phendummy)
+v= visreg(m, plot = FALSE)
+vr = v[[2]]
+
+pdf("_Graph/A21.5_res.pdf",height=3,width =2)
+ggplot(vr$res, aes(Range, (visregRes^2)/10000, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(vr$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +
+  scale_y_continuous(limits=c(0,18), breaks = c(0,.5,1,2,4,8,16))+
+  coord_trans(y = scales::log1p_trans())
+dev.off()
+
+# A21.9
+phendummy<- pc_mean[ ,which(names(pc_mean) %in% c("A21.9","E_Latitudeabs","q","Range"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+phendummy$A21.9 = phendummy$A21.9/1000
+m = lmer(sqrt(A21.9) ~  E_Latitudeabs+ Range + (1 | q), data = phendummy)
+v= visreg(m, plot = FALSE)
+vr = v[[2]]
+
+pdf("_Graph/A21.9_res.pdf",height=3,width =2)
+ggplot(vr$res, aes(Range, (visregRes^2)/10000, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(vr$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +
+  scale_y_continuous(limits=c(0,18), breaks = c(0,.5,1,2,4,8,16))+
+  coord_trans(y = scales::log1p_trans())
+dev.off()
+```
+
+
+*Constitituve latitudinal clines*
+---
+ 
+```{r}
+# Number of peaks
+pc_meandummy<- pc_mean[ ,which(names(pc_mean) %in% c("Peaks","E_Latitudeabs","Range","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+mod<- lm(log(Peaks) ~E_Latitudeabs + Range, data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+pdf("_Graph/Peaks_lat.pdf", height=2.5, width=2.5)
+ggplot(pc_meandummy,aes(x=E_Latitudeabs,y=Peaks, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) + theme_bw()+ylab("Number of peaks")+  xlab("Absolute latitude") + geom_line(data=pc_meandummy, aes(y=fit)) + geom_ribbon(data=pc_meandummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  theme(panel.grid.minor = element_blank(),  legend.position = "none")
+dev.off()
+
+
+# A17.4
+pc_meandummy<- pc_mean[ ,which(names(pc_mean) %in% c("A17.4","E_Latitudeabs","Range","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+pc_meandummy$A17.4 = pc_meandummy$A17.4/1000
+
+mod<- lm(log(A17.4) ~   E_Latitudeabs + I(E_Latitudeabs^2)  , data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)/10000
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+pdf("_Graph/17.4_lat.pdf", height=2.5, width=2.5)
+ggplot(pc_meandummy,aes(x=E_Latitudeabs,y=A17.4/10000, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A17.4 (*10^4 mAU)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_meandummy, aes(y=fit))+
+  geom_ribbon(data=pc_meandummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_log10()
+dev.off()
+
+
+# A17.8
+pc_meandummy<- pc_mean[ ,which(names(pc_mean) %in% c("A17.8","E_Latitudeabs","Range","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+pc_meandummy$A17.8 = pc_meandummy$A17.8/1000
+
+mod<- lm(log(A17.8) ~ Range + E_Latitudeabs+I(E_Latitudeabs^2) , data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)/10000
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+pdf("_Graph/A17.8_lat.pdf", height=2.5, width=2.5)
+ggplot(pc_meandummy,aes(x=E_Latitudeabs,y=A17.8/10000, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A17.8 (*10^4 mAU)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_meandummy, aes(y=fit))+
+  geom_ribbon(data=pc_meandummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_log10()
+dev.off()
+
+#A18.6
+pc_meandummy<- pc_mean[ ,which(names(pc_mean) %in% c("A18.6","E_Latitudeabs","Range","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+pc_meandummy$A18.6 = pc_meandummy$A18.6/1000
+
+mod<- lm(sqrt(A18.6) ~ Range + E_Latitudeabs+I(E_Latitudeabs^2) , data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted^2)/10000
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+pdf("_Graph/A18.6_lat.pdf", height=2.5, width=2.5)
+ggplot(pc_meandummy,aes(x=E_Latitudeabs,y=A18.6/10000, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A18.6 (*10^4 mAU)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_meandummy, aes(y=fit))+
+  geom_ribbon(data=pc_meandummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt(breaks=c(0.1,.5,1))
+dev.off()
+
+#A21.5
+pc_meandummy<- pc_mean[ ,which(names(pc_mean) %in% c("A21.5","E_Latitudeabs","Range","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+pc_meandummy$A21.5 = pc_meandummy$A21.5/1000
+
+mod<- lm(sqrt(A21.5) ~  Range +E_Latitudeabs , data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted^2)/10000
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+pdf("_Graph/A21.5_lat.pdf", height=2.5, width=2.5)
+ggplot(pc_meandummy,aes(x=E_Latitudeabs,y=A21.5/10000, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A21.5 (*10^4 mAU)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_meandummy, aes(y=fit))+
+  geom_ribbon(data=pc_meandummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt()
+dev.off()
+
+#A21.9
+pc_meandummy<- pc_mean[ ,which(names(pc_mean) %in% c("A21.9","E_Latitudeabs","Range","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+pc_meandummy$A21.9 = pc_meandummy$A21.9/1000
+
+mod<- lm(sqrt(A21.9) ~  Range +E_Latitudeabs , data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted^2)/10000
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+pdf("_Graph/A21.9_lat.pdf", height=2.5, width=2.5)
+ggplot(pc_meandummy,aes(x=E_Latitudeabs,y=A21.9/10000, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A21.9 (*10^4 mAU)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_meandummy, aes(y=fit))+
+  geom_ribbon(data=pc_meandummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt()
+dev.off()
+```
+
+
+*Inducible partial per range*
+---
+```{r}
+# Number of peaks
+phendummy<- phenol[ ,which(names(phenol) %in% c("TOTAL_PEAKS","E_Latitudeabs","q","Range", "JASMONATE"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lmer(TOTAL_PEAKS ~ JASMONATE + Range + E_Latitudeabs +   I(E_Latitudeabs^2) + (1 | q), data = phendummy)
+v= visreg(m, "Range", by="JASMONATE", overlay=T)
+
+pdf("_Graph/Ipeaksrange_res.pdf",height=3,width =2)
+ggplot(v$res,aes(y=visregRes, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)))+
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.5, dodge.width = .75), cex=1)+
+  scale_x_discrete(limits = rev(levels(v$res$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) 
+dev.off()
+
+pdf("_Graph/Ipeaks_res.pdf",height=3,width = 2)
+ggplot(v$res,aes(y=visregRes, x=JASMONATE, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(Range)))+
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.5, dodge.width = .75), cex=1)+
+ # scale_x_discrete(limits = rev(levels(v$res$JASMONATE)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) 
+dev.off()
+
+
+# Number of peaks
+phendummy<- phenol[ ,which(names(phenol) %in% c("TOTAL","E_Latitudeabs","q","Range", "JASMONATE"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lmer(TOTAL ~ JASMONATE + Range + E_Latitudeabs + (1 | q), data = phendummy)
+v= visreg(m, "Range", by="JASMONATE", overlay=T)
+
+pdf("_Graph/IpeakArange_res.pdf",height=3,width =2)
+ggplot(v$res,aes(y=visregRes/1000, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)))+
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.5, dodge.width = .75), cex=1)+
+  scale_x_discrete(limits = rev(levels(v$res$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) 
+dev.off()
+
+pdf("_Graph/IpeakA_res.pdf",height=2,width = 1.5)
+ggplot(v$res,aes(y=visregRes/1000, x=JASMONATE, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)))+
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.5, dodge.width = .75), cex=1)+
+ # scale_x_discrete(limits = rev(levels(v$res$Range))) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) 
+dev.off()
+
+phendummy<- phenol[ ,which(names(phenol) %in% c("TOTAL","E_Latitudeabs","q","Range", "JASMONATE"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+phendummy$PEAK11 = phendummy$PEAK11/1000
+m = lm(sqrt(PEAK11) ~JASMONATE*Range + JASMONATE*E_Latitudeabs+I(E_Latitudeabs^2), data = phendummy)
+
+fitted <- predict(m, interval="confidence")
+fitted2 <- (fitted)^2
+phendummy<-cbind(phendummy,fitted2)
+a<-phendummy[which(phendummy$JASMONATE=="1"),]
+b<-phendummy[which(phendummy$JASMONATE=="2"),]
+
+pdf("_Graph/jas8_lat.pdf",height=3,width = 3)
+
+  ggplot(phendummy,aes(x=E_Latitudeabs, y=(PEAK11), color=factor(Range), shape=factor(Range))) +
+  geom_point(size=2, aes(fill=factor(Range), alpha=rev(as.character(JASMONATE))))+
+  geom_point(size=2) +  scale_shape_manual(values=c(21,22,24))+ theme_bw()+    ylab("")+  xlab("") +theme(legend.position = "none")+ geom_line(data=a, aes(y=fit)) + geom_ribbon(data=a,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ geom_line(data=b,aes(y=fit), lty=2)  + geom_ribbon(data=b,aes(ymin=lwr,ymax=upr,fill=factor(Range)), alpha=0.1, lty=0)+
+    scale_y_sqrt()
+dev.off()
+
+
+```
+
+Major compounds
+```{r}
+# PEAK2
+phendummy<- phenol[ ,which(names(phenol) %in% c("PEAK2","E_Latitudeabs","q","Range", "JASMONATE"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lmer(sqrt(PEAK2)~ JASMONATE+Range+E_Latitudeabs+ (1|q), data = phendummy)
+v= visreg(m, "Range", by="JASMONATE", overlay=T)
+
+pdf("_Graph/IPEAK2range_res.pdf",height=3,width =2)
+ggplot(v$res,aes(y=(visregRes^2)/10000, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)))+
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.5, dodge.width = .75), cex=1)+
+  scale_x_discrete(limits = rev(levels(v$res$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) 
+dev.off()
+
+
+
+# PEAK3
+phendummy<- phenol[ ,which(names(phenol) %in% c("PEAK3","E_Latitudeabs","q","Range", "JASMONATE"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lmer(sqrt(PEAK3)~ Range+JASMONATE+E_Latitudeabs+ (1|q), data = phendummy)
+v= visreg(m, "Range", by="JASMONATE", overlay=T)
+
+pdf("_Graph/IPEAK3range_res.pdf",height=3,width =2)
+ggplot(v$res,aes(y=(visregRes^2)/10000, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)))+
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.5, dodge.width = .75), cex=1)+
+  scale_x_discrete(limits = rev(levels(v$res$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) 
+dev.off()
+
+# PEAK4
+phendummy<- phenol[ ,which(names(phenol) %in% c("PEAK4","E_Latitudeabs","q","Range", "JASMONATE"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lmer(sqrt(PEAK4) ~JASMONATE + Range + E_Latitudeabs +I(E_Latitudeabs^2) + (1|q), data = phendummy)
+v= visreg(m, "Range", by="JASMONATE", overlay=T)
+
+pdf("_Graph/IPEAK4range_res.pdf",height=3,width =2)
+ggplot(v$res,aes(y=(visregRes^2)/10000, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)))+
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.5, dodge.width = .75), cex=1)+
+  scale_x_discrete(limits = rev(levels(v$res$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) 
+dev.off()
+
+# PEAK5
+phendummy<- phenol[ ,which(names(phenol) %in% c("PEAK5","E_Latitudeabs","q","Range", "JASMONATE"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lmer(sqrt(PEAK5) ~JASMONATE + Range + (1|q), data = phendummy)
+v= visreg(m, "Range", by="JASMONATE", overlay=T)
+
+pdf("_Graph/IPEAK5range_res.pdf",height=3,width =2)
+ggplot(v$res,aes(y=(visregRes^2)/10000, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)))+
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.5, dodge.width = .75), cex=1)+
+  scale_x_discrete(limits = rev(levels(v$res$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) 
+dev.off()
+
+
+# PEAK6
+phendummy<- phenol[ ,which(names(phenol) %in% c("PEAK6","E_Latitudeabs","q","Range", "JASMONATE"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lmer((PEAK6) ~JASMONATE + Range+ (1|q), data = phendummy)
+v= visreg(m, "Range", by="JASMONATE", overlay=T)
+
+pdf("_Graph/IPEAK6range_res.pdf",height=3,width =2)
+ggplot(v$res,aes(y=visregRes/10000, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)))+
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.5, dodge.width = .75), cex=1)+
+  scale_x_discrete(limits = rev(levels(v$res$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) 
+dev.off()
+
+
+# PEAK7
+phendummy<- phenol[ ,which(names(phenol) %in% c("PEAK7","E_Latitudeabs","q","Range", "JASMONATE"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lmer(sqrt(PEAK7) ~JASMONATE + Range + E_Latitudeabs + I(E_Latitudeabs^2)  + (1|q), data = phendummy)
+v= visreg(m, "Range", by="JASMONATE", overlay=T)
+
+pdf("_Graph/IPEAK7range_res.pdf",height=3,width =2)
+ggplot(v$res,aes(y=(visregRes^2)/10000, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)))+
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.5, dodge.width = .75), cex=1)+
+  scale_x_discrete(limits = rev(levels(v$res$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) 
+dev.off()
+
+# PEAK10
+phendummy<- phenol[ ,which(names(phenol) %in% c("PEAK10","E_Latitudeabs","q","Range", "JASMONATE"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lmer(sqrt(PEAK10) ~JASMONATE+Range+E_Latitudeabs + (1|q), data = phendummy)
+v= visreg(m, "Range", by="JASMONATE", overlay=T)
+
+pdf("_Graph/IPEAK10range_res.pdf",height=3,width =2)
+ggplot(v$res,aes(y=(visregRes^2)/10000, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)))+
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.5, dodge.width = .75), cex=1)+
+  scale_x_discrete(limits = rev(levels(v$res$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) 
+dev.off()
+
+# PEAK11
+phendummy<- phenol[ ,which(names(phenol) %in% c("PEAK11","E_Latitudeabs","q","Range", "JASMONATE"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lmer(sqrt(PEAK11) ~JASMONATE+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phendummy)
+v= visreg(m, "Range", by="JASMONATE", overlay=T)
+
+pdf("_Graph/IPEAK11range_res.pdf",height=3,width =2)
+ggplot(v$res,aes(y=(visregRes^2)/10000, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)))+
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.5, dodge.width = .75), cex=1)+
+  scale_x_discrete(limits = rev(levels(v$res$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) 
+dev.off()
+
+
+phendummy<- phenol[ ,which(names(phenol) %in% c("PEAK11","E_Latitudeabs","q","Range", "JASMONATE"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+phendummy$PEAK11 = phendummy$PEAK11/1000
+m = lm(sqrt(PEAK11) ~JASMONATE*Range + JASMONATE*E_Latitudeabs+I(E_Latitudeabs^2), data = phendummy)
+
+fitted <- predict(m, interval="confidence")
+fitted2 <- (fitted)^2
+phendummy<-cbind(phendummy,fitted2)
+a<-phendummy[which(phendummy$JASMONATE=="1"),]
+b<-phendummy[which(phendummy$JASMONATE=="2"),]
+
+  ggplot(phendummy,aes(x=E_Latitudeabs, y=(PEAK11), color=factor(Range), shape=factor(Range))) +
+  geom_point(size=2, aes(fill=factor(Range), alpha=rev(as.character(JASMONATE))))+
+  geom_point(size=2) +  scale_shape_manual(values=c(21,22,24))+ theme_bw()+    ylab("")+  xlab("Absolute latitude") +theme(legend.position = "none")+ geom_line(data=a, aes(y=fit)) + geom_ribbon(data=a,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ geom_line(data=b,aes(y=fit), lty=2)  + geom_ribbon(data=b,aes(ymin=lwr,ymax=upr,fill=factor(Range)), alpha=0.1, lty=0)+
+    scale_y_sqrt()
+dev.off()
+
+
+```
+
+
+
+*Jasmonate responses among ranges*
+---
+```{r}
+#Total
+pc_meandummy<- phenol[ ,which(names(phenol) %in% c("TOTAL","E_Latitudeabs","JASMONATE","Range","RangeJas","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+
+mod<- lm(sqrt(TOTAL)~Range+JASMONATE+ E_Latitudeabs, data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- fitted^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+a<-pc_meandummy[which(pc_meandummy$JASMONATE=="1"),]
+b<-pc_meandummy[which(pc_meandummy$JASMONATE=="2"),]
+
+pdf("_Graph/jasrange_lat.pdf", height=5, width = 5)
+ggplot(pc_meandummy,aes(x=E_Latitudeabs, y=TOTAL, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=2, aes(fill=factor(Range), alpha=rev(as.character(JASMONATE))))+
+  geom_point(size=2) +  scale_shape_manual(values=c(21,22,24))+ theme_bw()+  ylab("Total peak area")+ xlab("Absolute latitude") +theme(legend.position = "none")+ geom_line(data=a, aes(y=fit)) + geom_ribbon(data=a,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ geom_line(data=b,aes(y=fit), lty=2)  + geom_ribbon(data=b,aes(ymin=lwr,ymax=upr,fill=factor(Range)), alpha=0.1, lty=0) + scale_y_sqrt(breaks=seq(0,30000, 10), labels=seq(0, 30000,10))+theme(panel.grid.minor = element_blank(),  legend.position = "none")
+dev.off()
+#PEAK1
+pc_meandummy<- phenol[ ,which(names(phenol) %in% c("PEAK1","E_Latitudeabs","JASMONATE","Range","RangeJas","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+
+mod<- lm(log(PEAK1) ~ JASMONATE * Range + E_Latitudeabs +   I(E_Latitudeabs^2) , data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+a<-pc_meandummy[which(pc_meandummy$JASMONATE=="1"),]
+b<-pc_meandummy[which(pc_meandummy$JASMONATE=="2"),]
+
+ggplot(pc_meandummy,aes(x=E_Latitudeabs, y=PEAK1, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=2, aes(fill=factor(Range), alpha=rev(as.character(JASMONATE))))+
+  geom_point(size=2) +  scale_shape_manual(values=c(21,22,24))+ theme_bw()+  ylab("Peak area 1")+ xlab("Absolute latitude") +theme(legend.position = "none")+ geom_line(data=a, aes(y=fit)) + geom_ribbon(data=a,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ geom_line(data=b,aes(y=fit), lty=2)  + geom_ribbon(data=b,aes(ymin=lwr,ymax=upr,fill=factor(Range)), alpha=0.1, lty=0)
+
+#PEAK2
+pc_meandummy<- phenol[ ,which(names(phenol) %in% c("PEAK2","E_Latitudeabs","JASMONATE","Range","RangeJas","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+
+mod<- lm(sqrt(PEAK2)~ JASMONATE * Range + E_Latitudeabs, data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <-fitted^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+a<-pc_meandummy[which(pc_meandummy$JASMONATE=="1"),]
+b<-pc_meandummy[which(pc_meandummy$JASMONATE=="2"),]
+
+ggplot(pc_meandummy,aes(x=E_Latitudeabs, y=PEAK2, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=2, aes(fill=factor(Range), alpha=rev(as.character(JASMONATE))))+
+  geom_point(size=2) +  scale_shape_manual(values=c(21,22,24))+ theme_bw()+  ylab("Peak area 2")+ xlab("Absolute latitude") +theme(legend.position = "none")+ geom_line(data=a, aes(y=fit)) + geom_ribbon(data=a,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ geom_line(data=b,aes(y=fit), lty=2)  + geom_ribbon(data=b,aes(ymin=lwr,ymax=upr,fill=factor(Range)), alpha=0.1, lty=0)
+
+#PEAK3
+pc_meandummy<- phenol[ ,which(names(phenol) %in% c("PEAK3","E_Latitudeabs","JASMONATE","Range","RangeJas","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+
+mod<- lm(log(PEAK3)~ JASMONATE*Range+ JASMONATE*E_Latitudeabs, data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <-exp(fitted)
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+a<-pc_meandummy[which(pc_meandummy$JASMONATE=="1"),]
+b<-pc_meandummy[which(pc_meandummy$JASMONATE=="2"),]
+
+ggplot(pc_meandummy,aes(x=E_Latitudeabs, y=PEAK3, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=2, aes(fill=factor(Range), alpha=rev(as.character(JASMONATE))))+
+  geom_point(size=2) +  scale_shape_manual(values=c(21,22,24))+ theme_bw()+  ylab("Peak area 3")+ xlab("Absolute latitude") +theme(legend.position = "none")+ geom_line(data=a, aes(y=fit)) + geom_ribbon(data=a,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ geom_line(data=b,aes(y=fit), lty=2)  + geom_ribbon(data=b,aes(ymin=lwr,ymax=upr,fill=factor(Range)), alpha=0.1, lty=0)
+
+```
+
+
+
+*Trade-offs*
+---
+
+Performance-trait associations, main exp, Number of peaks, ind level,  predictor shootbiom 
+```{r}
+# Number of peaks
+phendummy<- phenC[ ,which(names(phenC) %in% c("Peaks","T_shoot_biom","Range","Pop","q"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(Peaks~Range+sqrt(T_shoot_biom) , data=phenC)
+fitted= predict(m, interval="confidence")
+fitted2 <- fitted
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/Peaks_biom.pdf", height=2.5, width=2.5)
+ggplot(phendummy,aes(x=T_shoot_biom/1000,y=Peaks, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  
+  scale_shape_manual(values=c(21,22,24)) +   theme_bw()+
+  geom_line(data=phendummy, aes(y=fit)) + 
+  geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  theme(panel.grid.minor = element_blank(),  legend.position = "none")+ scale_x_sqrt() + 
+  scale_y_continuous(limits=c(17,62))
+dev.off()
+
+m = lmer(Peaks~Range+sqrt(T_shoot_biom) + (1 | q)+(1|Pop) , data = phendummy)
+v= visreg(m, plot = FALSE)
+vr = v[[1]]
+
+pdf("_Graph/peaksrange_biomres.pdf",height=2.5,width = 1.5)
+ggplot(vr$res, aes(Range, visregRes, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(vr$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24))+   scale_y_continuous(limits=c(17,62))
+dev.off()
+
+
+pdf("_Graph/range_peaks.pdf", height=2.5, width=1)
+ggplot(aes(y=Peaks, x=Range, fill=as.factor(Range), shape=factor(Range)), data=phendummy) + 
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ 
+  scale_x_discrete(limits = rev(levels(phendummy$Range)), breaks=NULL) + 
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) 
+dev.off()
+
+
+# peakarea
+phendummy<- phenC[ ,which(names(phenC) %in% c("PeakArea","T_shoot_biom","Range","Pop","q"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(sqrt(PeakArea/10000000)~Range+sqrt(T_shoot_biom) , data=phenC)
+fitted= predict(m, interval="confidence")
+fitted2 <- fitted^2
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/PeakA_biom.pdf", height=2.5, width=2.5)
+ggplot(phendummy,aes(x=T_shoot_biom/1000,y=PeakArea/10000000, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  
+  scale_shape_manual(values=c(21,22,24)) +   theme_bw()+
+  geom_line(data=phendummy, aes(y=fit)) + 
+  geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+  scale_x_sqrt()+ scale_y_sqrt()
+dev.off()
+
+# peakarea
+phendummy<- phenC[ ,which(names(phenC) %in% c("Trichome","T_shoot_biom","Range","Pop","q"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(sqrt(Trichome)~Range+sqrt(T_shoot_biom) , data=phenC)
+fitted= predict(m, interval="confidence")
+fitted2 <- fitted^2
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/trich_biom.pdf", height=2.5, width=2.5)
+ggplot(phendummy,aes(x=T_shoot_biom/1000,y=Trichome, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  
+  scale_shape_manual(values=c(21,22,24)) +   theme_bw()+
+  geom_line(data=phendummy, aes(y=fit)) + 
+  geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+  scale_y_sqrt()+ scale_x_sqrt()
+dev.off()
+```
+
+Performance-trait associations, main exp, Number of peaks, ind level,  predictor sla 
+```{r}
+# Number of peaks
+phendummy<- phenC[ ,which(names(phenC) %in% c("Peaks","T_Sla","Range","Pop","q"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(Peaks~Range+log(T_Sla) , data=phenC)
+fitted= predict(m, interval="confidence")
+fitted2 <- fitted
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/Peaks_sla.pdf", height=2.5, width=2.5)
+ggplot(phendummy,aes(x=T_Sla,y=Peaks, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  
+  scale_shape_manual(values=c(21,22,24)) +   theme_bw()+
+  geom_line(data=phendummy, aes(y=fit)) + 
+  geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+  scale_x_log10(breaks=seq(0,100,20))+   scale_y_continuous(limits=c(17,62))
+dev.off()
+
+m = lmer(Peaks~Range+log(T_Sla)  + (1 | q)+(1|Pop) , data = phendummy)
+v= visreg(m, plot = FALSE)
+vr = v[[1]]
+
+pdf("_Graph/peakArange_slares.pdf",height=2.5,width = 1.5)
+ggplot(vr$res, aes(Range, visregRes, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(vr$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24))+   scale_y_continuous(limits=c(17,62))
+dev.off()
+
+
+#PA
+phendummy<- phenC[ ,which(names(phenC) %in% c("PeakArea","T_Sla","Range","Pop","q"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(sqrt(PeakArea/10000000)~Range+log(T_Sla) , data=phenC)
+fitted= predict(m, interval="confidence")
+fitted2 <- fitted^2
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/PeakA_sla.pdf", height=2.5, width=2.5)
+ggplot(phendummy,aes(x=T_Sla,y=PeakArea/10000000, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  
+  scale_shape_manual(values=c(21,22,24)) +   theme_bw()+
+  geom_line(data=phendummy, aes(y=fit)) + 
+  geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+ scale_y_sqrt() +  scale_x_log10(breaks=seq(0,100,20))
+
+dev.off()
+
+# Number of trichomes
+phendummy<- phenC[ ,which(names(phenC) %in% c("Trichome","T_Sla","Range","Pop","q"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(sqrt(Trichome)~Range+log(T_Sla) , data=phenC)
+fitted= predict(m, interval="confidence")
+fitted2 <- fitted^2
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/trich_sla.pdf", height=2.5, width=2.5)
+ggplot(phendummy,aes(x=T_Sla,y=Trichome, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  
+  scale_shape_manual(values=c(21,22,24)) +   theme_bw()+
+  geom_line(data=phendummy, aes(y=fit)) + 
+  geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+  scale_x_log10(breaks=seq(0,100,20))+ scale_y_sqrt()
+dev.off()
+```
+
+
+
+Performance-trait associations, main exp, Number of peaks, ind level, no shootbiom, sla&biom in smae models
+```{r}
+# Number of peaks
+phendummy<- phenC[ ,which(names(phenC) %in% c("Peaks","T_shoot_biom","T_Sla","Range","Pop","q"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lmer(Peaks~Range+sqrt(T_shoot_biom) +log(T_Sla)+ (1|Pop)+(1|q), data=phenC)
+v= visreg(m,"Range", plot = FALSE)
+
+pdf("_Graph/peaksrange_resbs.pdf",height=3,width = 2)
+ggplot(v$res, aes(Range, visregRes, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(v$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=.75)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +      scale_y_continuous(limits = c(18,61))
+
+dev.off()
+
+v=visreg(m, by="Range", xvar="T_shoot_biom")
+
+#pdf("_Graph/peaksrange_res.pdf",height=2,width = 1.5)
+ggplot(v$fit, aes(T_shoot_biom/1000, visregFit, color=factor(Range), shape=factor(Range)))+
+    geom_line()+
+    geom_ribbon(aes(ymin=visregLwr, ymax=visregUpr,fill=factor(Range)), alpha=.3, lty=0)+
+    geom_point(data=v$res, aes(T_shoot_biom/1000, visregRes,fill=factor(Range)), size=1)+
+    theme_bw()+ylab("Residual number of peaks") +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab('Shoot biomass (g)')
+#dev.off()
+
+#Peakarea
+phendummy<- phenC[ ,which(names(phenC) %in% c("PeakArea","T_shoot_biom","T_Sla","Range","Pop","q"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lmer(sqrt(PeakArea)~Range+sqrt(T_shoot_biom) +log(T_Sla)+ (1|Pop)+(1|q), data=phenC)
+v= visreg(m,"Range", plot = FALSE)
+
+pdf("_Graph/peakArange_resbs.pdf",height=3,width = 2)
+ggplot(v$res, aes(Range, visregRes/1000, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(v$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .5), cex=.75)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +
+    scale_y_continuous(limits = c(3,20))
+
+dev.off()
+
+#Peakarea
+phendummy<- phenC[ ,which(names(phenC) %in% c("Trichome","T_shoot_biom","T_Sla","Range","Pop","q"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lmer(sqrt(Trichome)~Range+sqrt(T_shoot_biom) + (1|Pop)+(1|q), data=phenC)
+v= visreg(m,"Range", plot = FALSE)
+
+pdf("_Graph/trichrange_resbs.pdf",height=3,width = 2)
+ggplot(v$res, aes(Range, (visregRes)^2, color=factor(Range), shape=factor(Range)))+
+   geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F) + 
+  scale_x_discrete(limits = rev(levels(v$res$Range)), breaks=NULL) +
+  geom_point(position = position_jitterdodge(jitter.width =.9, dodge.width = .75), cex=1)+
+  theme( panel.grid.minor = element_blank(),  legend.position = "none") + 
+  scale_shape_manual(values =c(21,22,24)) +
+      scale_y_continuous(limits = c(0,300))
+
+dev.off()
+
+```
+
+
+**Trade-offs Jasmonate**
+---
+
+```{r}
+ci = jas_proxy[ ,which(names(jas_proxy) %in% c("TOTAL_PEAKS","Range","Mom","Pop","JASMONATE","q.x"))]
+ci = ci[-c(283,285),]
+ci2 = ci %>% spread(JASMONATE, TOTAL_PEAKS)
+ci3 = ci2[complete.cases(ci2), ]
+colnames(ci3) = c("Mom"  , "Pop"  , "Range","q", "C"  ,   "J"  )
+ci3$ci = ci3$J - ci3$C
+ci3$ci = ci3$ci 
+ci3$C = ci3$C
+m = lm(sqrt(ci3$ci+30)~  sqrt(C) , data=ci3 )
+fitted <- predict(m, interval="confidence")
+fitted2 <- (fitted)^2 - 30
+phendummy<-cbind(ci3,fitted2)
+
+pdf("_Graph/cci_peaks.pdf", height=3, width = 3)
+ggplot(phendummy,aes(x=C,y=ci, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  geom_line(data=phendummy, aes(y=fit))+
+  geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_x_sqrt()
+dev.off()
+
+
+#TOTAL AREA
+
+ci = jas_proxy[ ,which(names(jas_proxy) %in% c("TOTAL","Range","Mom","Pop","JASMONATE","q.x"))]
+ci = ci[-c(283,285),]
+ci2 = ci %>% spread(JASMONATE, TOTAL)
+ci3 = ci2[complete.cases(ci2), ]
+colnames(ci3) = c("Mom"  , "Pop"  , "Range","q", "C"  ,   "J"  )
+ci3$ci = ci3$J - ci3$C
+ci3$ci = ci3$ci /10000
+ci3$C = ci3$C/10000
+m = lm(sqrt(ci+100000)~  sqrt(C) , data=ci3 )
+fitted <- predict(m, interval="confidence")
+fitted2 <- (fitted)^2 - 100000
+phendummy<-cbind(ci3,fitted2)
+
+pdf("_Graph/cci_peakA.pdf", height=3, width = 3)
+ggplot(phendummy,aes(x=C,y=ci, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  geom_line(data=phendummy, aes(y=fit))+
+  geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_x_sqrt()
+dev.off()
+    
+
+
+```
+
+
+```{r}
+jas = read.table("Jasmonateexp.txt", header=T)
+jas$TOTAL = jas$TOTAL/jas$WEIGHT
+jas1<- jas[which(jas$JASMONATE=='1'),]
+phendummyC<- jas1[ ,which(names(jas1) %in% c("TOTAL","Range","Mom"))]
+phendummyC$TOTAL = phendummyC$TOTAL
+jas2<- jas[which(jas$JASMONATE=='2'),]
+phendummyD<- jas2[ ,which(names(jas2) %in% c("TOTAL","Mom"))]
+phendummyD$TOTAL = phendummyD$TOTAL
+
+pc_meandummy <- inner_join(phendummyC, phendummyD, by="Mom")
+
+mod<-lm(sqrt(TOTAL.y)~sqrt(TOTAL.x), data=pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2<- fitted^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+pdf("_Graph/area_jas12.pdf",height=2.5,width = 2.5)
+ggplot(pc_meandummy,aes(x=TOTAL.x, y=TOTAL.y, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+
+  geom_point(size=1) +  scale_shape_manual(values=c(21,22,24))+
+  theme_bw()+theme(legend.position = "none",panel.grid.minor = element_blank())+ 
+  geom_line(data=pc_meandummy, aes(y=fit)) + 
+  geom_ribbon(data=pc_meandummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_x_sqrt(breaks=seq(0,150,30))+ scale_y_sqrt(breaks=seq(0,150,30))+  
+  xlab(expression('Total peak area (*' *10^4* ' mAU) control')) +
+  ylab(expression('Total peak area (*' *10^4* ' mAU) wounding + MeJa'))
+dev.off()
+
+###
+jas1<- jas[which(jas$JASMONATE=='1'),]
+phendummyC<- jas1[ ,which(names(jas1) %in% c("TOTAL_PEAKS","Range","Mom","Pop"))]
+jas2<- jas[which(jas$JASMONATE=='2'),]
+phendummyD<- jas2[ ,which(names(jas2) %in% c("TOTAL_PEAKS","Mom"))]
+pc_meandummy <- inner_join(phendummyC, phendummyD, by="Mom")
+pc_meandummy <- unique(pc_meandummy)
+
+m <- lm(sqrt(TOTAL_PEAKS.y)~sqrt(TOTAL_PEAKS.x) , data=pc_meandummy)
+fitted <- predict(m, interval="confidence")
+fitted2<- fitted^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+pdf("_Graph/peaks_jas12.pdf",height=2.5,width = 2.5)
+ggplot(pc_meandummy,aes(x=TOTAL_PEAKS.x, y=TOTAL_PEAKS.y, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+
+  geom_point(size=1) +  scale_shape_manual(values=c(21,22,24))+
+  theme_bw()+theme(legend.position = "none",panel.grid.minor = element_blank())+ 
+  geom_line(data=pc_meandummy, aes(y=fit)) + 
+  geom_ribbon(data=pc_meandummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt(breaks=seq(0,50,10))+
+  scale_x_sqrt()+
+  xlab('Number of peaks control') + ylab('Number of peaks wounding + MeJa')
+dev.off()
+```
+
+
+**OLD**
+===
+
+
+*phenolic/biomass trait responses among ranges*
+---
+ 
+```{r}
+# Number of peaks
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("Peaks","E_Latitudeabs","Range","q"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$Peaks = pc_transdummy$Peaks*1000
+mod<- lm(log(Peaks) ~ Range*E_Latitudeabs+I(E_Latitudeabs^2), data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/Peaksdivbiom_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=Peaks, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) + theme_bw()+ylab("Number of peaks\n\n/shoot biomass (g)")+  xlab("Absolute latitude") + geom_line(data=pc_transdummy, aes(y=fit)) + geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_log10(breaks=seq(0,10, 2), labels=seq(0, 10,2))+
+  theme(panel.grid.minor = element_blank(),  legend.position = "none",axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+dev.off()
+
+pdf("_Graph/treat_peaksdivbiom.pdf", height=2.6, width=.5)
+ggplot(aes(y=Peaks, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_log10(breaks=seq(0,10, 2), labels=seq(0, 10,2))+
+ ylab("")+  xlab("") 
+dev.off()
+
+# PeakArea
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("PeakArea","E_Latitudeabs","Range","q"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$PeakArea = pc_transdummy$PeakArea/1000
+
+mod<- lm(log(PeakArea) ~  Range*E_Latitudeabs+I(E_Latitudeabs^2), data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/Peakareadivbiom_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=PeakArea, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ylab('Total peak area (*10^6 mAU)\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  theme(panel.grid.minor = element_blank(),legend.position = "none",axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+ geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+ scale_y_log10(breaks=c(2,5,seq(0,40, 10)))+  xlab("") 
+dev.off()
+
+pdf("_Graph/peakareadivbiom_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=PeakArea, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_log10(breaks=c(2,5,seq(0,40, 10)))+ 
+ ylab("")+  xlab("")
+dev.off()
+
+# Trichome
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("Trichome","E_Latitudeabs","Range","q"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$Trichome = pc_transdummy$Trichome*1000
+mod<- lm(log(Trichome) ~ Range+E_Latitudeabs , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/trichomedivbiom_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=Trichome, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ylab('Number of trichomes\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  theme(panel.grid.minor = element_blank(),legend.position = "none",axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+ geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    scale_y_log10(breaks=c(2,5,seq(0,40, 10)), labels=c(2,5,seq(0,40, 10)))+  xlab("") 
+dev.off()
+
+pdf("_Graph/trichomedivbiom_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=Trichome, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_log10(breaks=c(2,5,seq(0,40, 10)), labels=c(2,5,seq(0,40, 10)))+
+ ylab("")+  xlab("") 
+
+dev.off()
+
+
+# 15.7
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A15.7","E_Latitudeabs","Range","q"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A15.7 = pc_transdummy$A15.7/1000
+
+mod<- lm(sqrt(A15.7) ~  E_Latitudeabs+I(E_Latitudeabs^2) , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted)^2
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/15_7divbiom_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=A15.7, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none",axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  ylab('Peak area A15.7 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt(breaks=c(1,2,seq(0,20, 5)), labels=c(1,2,seq(0,20, 5)))+  xlab("") 
+dev.off()
+
+pdf("_Graph/15_7divbiom_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A15.7, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_sqrt(breaks=c(1,2,seq(0,20, 5)), labels=c(1,2,seq(0,20, 5)))+ 
+ ylab("")+  xlab("") 
+dev.off()
+
+# A17.4
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A17.4","E_Latitudeabs","Range","q"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A17.4 = pc_transdummy$A17.4/1000
+
+mod<- lm(log(A17.4) ~   E_Latitudeabs + I(E_Latitudeabs^2)  , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/17_4divbiom_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=A17.4, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none",axis.title.x=element_blank(),
+        axis.text.x=element_blank(),        axis.ticks.x=element_blank())+
+  ylab('Peak area A17.4 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_log10(breaks=c(0.5,1,2,seq(0,10, 5)), labels=c(0.5,1,2,seq(0, 10,5)))+  xlab("") 
+dev.off()
+
+pdf("_Graph/17_4divbiom_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A17.4, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_log10(breaks=c(0.5,1,2,seq(0,10, 5)), labels=c(0.5,1,2,seq(0, 10,5)))+ 
+ ylab("")+  xlab("") 
+dev.off()
+
+
+# A17.8
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A17.8","E_Latitudeabs","Range","q"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A17.8 = pc_transdummy$A17.8/1000
+
+mod<- lm(log(A17.8) ~ Range , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/17_8divbiom_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A17.8, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_log10(breaks=seq(0,4, .5), labels=seq(0, 4,.5))+
+ ylab("")+  xlab("") 
+dev.off()
+
+# A18.6
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A18.6","E_Latitudeabs","Range","q"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A18.6 = pc_transdummy$A18.6/1000
+
+mod<- lm(sqrt(A18.6) ~ Range* E_Latitudeabs , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted)^2
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/A18.6divbiom_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=A18.6, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none",axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  ylab('Peak area A18.6 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt(breaks=c(0.1,0.2,seq(0,1, 0.5)), labels=c(0.1,0.2,seq(0,1, 0.5)))+  xlab("") 
+dev.off()
+
+pdf("_Graph/A18.6divbiom_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A18.6, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +   scale_y_sqrt(breaks=c(0.1,0.2,seq(0,1, 0.5)), labels=c(0.1,0.2,seq(0,1, 0.5)))+ 
+ ylab("")+  xlab("") 
+dev.off()
+
+# A18.8
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A18.8","E_Latitudeabs","Range","q"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A18.8 = pc_transdummy$A18.8/1000
+mod<- lm(log(A18.8+1) ~ Range , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <-exp(fitted)-1
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/A18.8divbiom_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A18.8, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank())+panel.grid.major.y = element_blank(),
+  scale_shape_manual(values =c(21,22,24)) +  
+  scale_y_log10(breaks=seq(0,.6, .1), labels=seq(0, .6,.1))+
+ ylab("")+  xlab("") 
+dev.off()
+
+# A21.5
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A21.5","E_Latitudeabs","Range","q"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A21.5 = pc_transdummy$A21.5/1000
+mod<- lm(log(A21.5) ~ Range , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <-exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/A21.5divbiom_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A21.5, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +
+ ylab("")+  xlab("") 
+  scale_y_log10(breaks=c(500,1000,2000,seq(0,20000, 5000)), labels=c(500,1000,2000,seq(0,20000, 5000))) 
+dev.off()
+
+# A21.9
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A21.9","E_Latitudeabs","Range","q"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A21.9 = pc_transdummy$A21.9/1000
+
+mod<- lm(sqrt(A21.9) ~E_Latitudeabs , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted)^2
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/A21.9divbiom_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=A21.9, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A21.9 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt(breaks=c(0.1,0.2,seq(0,2, 0.5)), labels=c(0.1,0.2,seq(0,2, 0.5)))+  xlab("") 
+dev.off()
+
+pdf("_Graph/A21.9divbiom_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A21.9, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +    scale_y_sqrt(breaks=c(0.1,0.2,seq(0,2, 0.5)), labels=c(0.1,0.2,seq(0,2, 0.5)))+  
+ ylab("")+  xlab("") 
+dev.off()
+
+
+# A23.8
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A23.8","E_Latitudeabs","Range","q"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A23.8 = pc_transdummy$A23.8/1000
+
+mod<- lm(log(A23.8+1) ~E_Latitudeabs , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)-1
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/A23.8divbiom_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=A23.8, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none",axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  ylab('Peak area A23.8 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_log10(breaks=c(0.1,0.2,seq(0,2, 0.5)), labels=c(0.1,0.2,seq(0,2, 0.5)))+  xlab("") 
+dev.off()
+
+pdf("_Graph/A23.8divbiom_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A23.8, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) + 
+    scale_y_log10(breaks=c(0.1,0.2,seq(0,2, 0.5)), labels=c(0.1,0.2,seq(0,2, 0.5)))
+ ylab("")+  xlab("") 
+dev.off()
+
+#All non-latitude phenolics (17.8; 18.8; 21.5)
+df_m = melt(pc_trans[,c(37,40:41,46)])
+df_m$Range <- factor(df_m$Range, levels = rev(levels(df_m$Range)))
+df_m$variable <- gsub('17.8', 'C3', df_m$variable)
+df_m$variable <- gsub('18.8', 'C6', df_m$variable)
+df_m$variable <- gsub('21.5', 'C7', df_m$variable)
+
+pdf("_Graph/selphen_divbiom_range.pdf", height=2.5, width=3)
+ggplot(data = df_m, aes(x=variable, y=value/1000)) + geom_boxplot(aes(fill=Range ),outlier.colour = NA) +theme_bw()+geom_point(aes(y=value/1000, group=Range, shape=Range), position = position_dodge(width=0.75), cex=0.5)+ guides(fill=F) +theme(panel.grid.minor = element_blank(),legend.position = "none") + ylab(expression('Peak area *(10^6* mAU\n/shoot biomass (g)'))+ xlab("Phenolic compound")+ scale_y_log10(breaks= c(0.01,0.1,1,10),position = "left")+scale_fill_manual(values=c("#619CFF", "#00BA38", "#F8766D"))+scale_shape_manual(values=c(24,22,21)) 
+dev.off()
+```
+
+
+
+
+*phenolic/biomass trait responses among ranges with sla*
+---
+ 
+```{r}
+# Number of peaks
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("Peaks","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$Peaks = pc_transdummy$Peaks*1000
+pc_transdummy$T_Sla = mean(pc_transdummy$T_Sla)
+mod<- lm(log(Peaks) ~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+T_Sla, data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/Peaksdivbiomsla_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=Peaks, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) + theme_bw()+ylab("Number of peaks\n/shoot biomass (g)")+  xlab("Absolute latitude") + geom_line(data=pc_transdummy, aes(y=fit)) + geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_log10(breaks=c(2,4,8),limits=c(NA,10))+
+  theme(panel.grid.minor = element_blank(),  legend.position = "none")
+dev.off()
+
+pdf("_Graph/treat_peaksdivbiomsla.pdf", height=2.6, width=.5)
+ggplot(aes(y=Peaks, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +      scale_y_log10(breaks=c(2,4,8),limits=c(NA,10))+
+ ylab("")+  xlab("") 
+dev.off()
+
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("Peaks","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$Peaks = pc_transdummy$Peaks*1000
+pc_transdummy$E_Latitudeabs = mean(pc_transdummy$E_Latitudeabs)
+mod<- lm(log(Peaks) ~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+T_Sla, data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/Peaksdivbiomsla_slarange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=T_Sla,y=Peaks, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) + theme_bw()+ylab("Number of peaks\n/shoot biomass (g)")+  xlab("sla") + geom_line(data=pc_transdummy, aes(y=fit)) + geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_log10(breaks=c(2,4,8),limits=c(NA,10))+
+  theme(panel.grid.minor = element_blank(),  legend.position = "none")
+dev.off()
+
+
+# PeakArea
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("PeakArea","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$PeakArea = pc_transdummy$PeakArea/1000
+pc_transdummy$T_Sla = mean(pc_transdummy$T_Sla)
+mod<- lm(log(PeakArea) ~ Range+ E_Latitudeabs + T_Sla , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/Peakareadivbiomsla_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=PeakArea, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ylab('Total peak area (*10^6 mAU)\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  theme(panel.grid.minor = element_blank(),legend.position = "none")+ geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+ scale_y_log10(breaks=c(2,5,seq(0,40, 10)))+  xlab("") 
+dev.off()
+
+pdf("_Graph/peakareadivbiomsla_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=PeakArea, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_log10(breaks=c(2,5,seq(0,40, 10)))+ 
+ ylab("")+  xlab("")
+dev.off()
+
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("PeakArea","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$PeakArea = pc_transdummy$PeakArea/1000
+pc_transdummy$E_Latitudeabs = mean(pc_transdummy$E_Latitudeabs)
+mod<- lm(log(PeakArea) ~ Range+ E_Latitudeabs + T_Sla , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/Peakareadivbiomsla_slarange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=T_Sla,y=PeakArea, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ylab('Total peak area (*10^6 mAU)\n/shoot biomass (g)')+  xlab("SLA") +
+  theme(panel.grid.minor = element_blank(),legend.position = "none")+ geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+ scale_y_log10(breaks=c(2,5,seq(0,40, 10)))+  xlab("") 
+dev.off()
+
+# Trichome
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("Trichome","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$Trichome = pc_transdummy$Trichome*1000
+pc_transdummy$T_Sla = mean(pc_transdummy$T_Sla)
+mod<- lm(log(Trichome) ~ T_Sla+E_Latitudeabs , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/trichomedivbiomsla_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=Trichome, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ylab('Number of trichomes\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  theme(panel.grid.minor = element_blank(),legend.position = "none")+ geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    scale_y_log10(breaks=c(2,5,10,seq(0,40, 20)), labels=c(2,5,10,seq(0,40, 20)))+  xlab("") 
+dev.off()
+
+pdf("_Graph/trichomedivbiomsla_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=Trichome, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_log10(breaks=c(2,5,seq(0,40, 10)), labels=c(2,5,seq(0,40, 10)))+
+ ylab("")+  xlab("") 
+dev.off()
+
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("Trichome","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$Trichome = pc_transdummy$Trichome*1000
+pc_transdummy$E_Latitudeabs = mean(pc_transdummy$E_Latitudeabs)
+mod<- lm(log(Trichome) ~ T_Sla+E_Latitudeabs , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/trichomedivbiomsla_slarange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=T_Sla,y=Trichome, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ylab('Number of trichomes\n/shoot biomass (g)')+  xlab("sla") +
+  theme(panel.grid.minor = element_blank(),legend.position = "none")+ geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    scale_y_log10(breaks=c(2,5,10,seq(0,40, 20)), labels=c(2,5,10,seq(0,40, 20)))
+dev.off()
+
+# 15.7
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A15.7","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A15.7 = pc_transdummy$A15.7/1000
+pc_transdummy$T_Sla = mean(pc_transdummy$T_Sla)
+mod<- lm(sqrt(A15.7) ~  E_Latitudeabs+T_Sla , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted)^2
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/15_7divbiomsla_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=A15.7, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A15.7 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt(limits=c(1,20),breaks=c(1,2,seq(0,20, 5)), labels=c(1,2,seq(0,20, 5)))
+dev.off()
+
+pdf("_Graph/15_7divbiomsla_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A15.7, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_sqrt(limits=c(1,20),breaks=c(1,2,seq(0,20, 5)), labels=c(1,2,seq(0,20, 5)))+ 
+ ylab("")+  xlab("") 
+dev.off()
+
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A15.7","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A15.7 = pc_transdummy$A15.7/1000
+pc_transdummy$E_Latitudeabs = mean(pc_transdummy$E_Latitudeabs)
+mod<- lm(sqrt(A15.7) ~  E_Latitudeabs+T_Sla , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted)^2
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/15_7divbiomsla_slarange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=T_Sla,y=A15.7, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A15.7 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("sla") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+scale_y_sqrt(limits=c(1,20),breaks=c(1,2,seq(0,20, 5)), labels=c(1,2,seq(0,20, 5)))
+dev.off()
+
+# A17.4
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A17.4","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A17.4 = pc_transdummy$A17.4/1000
+pc_transdummy$T_Sla = mean(pc_transdummy$T_Sla)
+mod<- lm(log(A17.4) ~   E_Latitudeabs + I(E_Latitudeabs^2)  +T_Sla, data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/17_4divbiomsla_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=A17.4, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A17.4 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_log10(limits=c(0.05,11))+  xlab("") 
+dev.off()
+
+pdf("_Graph/17_4divbiomsla_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A17.4, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_log10(limits=c(0.05,11))+ 
+ ylab("")+  xlab("") 
+dev.off()
+
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A17.4","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A17.4 = pc_transdummy$A17.4/1000
+pc_transdummy$E_Latitudeabs = mean(pc_transdummy$E_Latitudeabs)
+mod<- lm(log(A17.4) ~   E_Latitudeabs + I(E_Latitudeabs^2)  +T_Sla, data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/17_4divbiomsla_slarange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=T_Sla,y=A17.4, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A17.4 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("sla") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_log10(limits=c(0.05,11))
+dev.off()
+
+# A17.8
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A17.8","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A17.8 = pc_transdummy$A17.8/1000
+mod<- lm(log(A17.8) ~ Range*T_Sla , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/17_8divbiomsla_slarange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=T_Sla,y=A17.8, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A17.8 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("sla") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_log10(breaks=c(0.5,1,2,seq(0,10, 5)), labels=c(0.5,1,2,seq(0, 10,5)))
+dev.off()
+
+pdf("_Graph/17_8divbiomsla_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A17.8, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_log10(breaks=c(0.5,1,2,seq(0,10, 5)), labels=c(0.5,1,2,seq(0, 10,5)))+ 
+ ylab("")+  xlab("") 
+dev.off()
+
+
+# A18.6
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A18.6","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A18.6 = pc_transdummy$A18.6/1000
+
+mod<- lm(sqrt(A18.6) ~ Range* E_Latitudeabs , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted)^2
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/A18.6divbiomsla_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=A18.6, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A18.6 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt(breaks=c(0.1,0.2,seq(0,1, 0.5)), labels=c(0.1,0.2,seq(0,1, 0.5)))
+dev.off()
+
+pdf("_Graph/A18.6divbiomsla_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A18.6, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +   scale_y_sqrt(breaks=c(0.1,0.2,seq(0,1, 0.5)), labels=c(0.1,0.2,seq(0,1, 0.5)))+ 
+ ylab("")+  xlab("") 
+dev.off()
+
+# A18.8
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A18.8","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A18.8 = pc_transdummy$A18.8/1000
+pc_transdummy$T_Sla = mean(pc_transdummy$T_Sla)
+mod<- lm(sqrt(A18.8) ~   E_Latitudeabs  +T_Sla, data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted)^2
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/A18.8divbiomsla_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=A18.8, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A18.8 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt()
+dev.off()
+
+pdf("_Graph/A18.8divbiomsla_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A18.8, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_sqrt()+ 
+ ylab("")+  xlab("") 
+dev.off()
+
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A18.8","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A18.8 = pc_transdummy$A18.8/1000
+pc_transdummy$E_Latitudeabs = mean(pc_transdummy$E_Latitudeabs)
+mod<- lm(sqrt(A18.8) ~   E_Latitudeabs +T_Sla, data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted)^2
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/A18.8divbiomsla_slarange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=T_Sla,y=A18.8, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A18.8 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("sla") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt()
+dev.off()
+
+# A21.5
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A21.5","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A21.5 = pc_transdummy$A21.5/1000
+mod<- lm(log(A21.5) ~ Range+T_Sla , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <-exp(fitted)
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/A21.5divbiomsla_slarange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=T_Sla,y=A21.5, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A21.5 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("sla") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_log10()
+dev.off()
+
+pdf("_Graph/A21.5divbiomsla_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A21.5, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_log10()+ 
+ ylab("")+  xlab("") 
+dev.off()
+# A21.9
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A21.9","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A21.9 = pc_transdummy$A21.9/1000
+
+mod<- lm(sqrt(A21.9) ~E_Latitudeabs , data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted)^2
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/A21.9divbiomsla_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=A21.9, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A21.9 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt(breaks=c(0.1,0.2,seq(0,2, 0.5)), labels=c(0.1,0.2,seq(0,2, 0.5)))+  xlab("") 
+dev.off()
+
+pdf("_Graph/A21.9divbiomsla_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A21.9, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +    scale_y_sqrt(breaks=c(0.1,0.2,seq(0,2, 0.5)), labels=c(0.1,0.2,seq(0,2, 0.5)))+  
+ ylab("")+  xlab("") 
+dev.off()
+
+
+# A23.8
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A23.8","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A23.8 = pc_transdummy$A23.8/1000
+pc_transdummy$T_Sla = mean(pc_transdummy$T_Sla)
+mod<- lm(log(A23.8+1) ~   E_Latitudeabs  +T_Sla, data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)-1
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/A23.8divbiomsla_latrange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=E_Latitudeabs,y=A23.8, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A23.8 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("Absolute latitude") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt()
+dev.off()
+
+pdf("_Graph/A23.8divbiomsla_range.pdf", height=2.5, width=.5)
+ggplot(aes(y=A23.8, x=Range, fill=as.factor(Range), shape=factor(Range)), data=pc_transdummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F, shape=F)+ scale_x_discrete(limits = rev(levels(pc_transdummy$Range)), breaks=NULL) + geom_point(position = position_jitterdodge(jitter.width =.2, dodge.width = .5), cex=0.5)+theme( panel.grid.minor = element_blank(),  legend.position = "none",axis.title.y=element_blank(),axis.text.y=element_blank(),panel.grid.major.y = element_blank(),
+            axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) +  scale_y_sqrt()+ 
+ ylab("")+  xlab("") 
+dev.off()
+
+pc_transdummy<- pc_trans[ ,which(names(pc_trans) %in% c("A23.8","E_Latitudeabs","Range","q", "T_Sla"))]
+pc_transdummy<-pc_transdummy[complete.cases(pc_transdummy), ]
+pc_transdummy$A23.8 = pc_transdummy$A23.8/1000
+pc_transdummy$E_Latitudeabs = mean(pc_transdummy$E_Latitudeabs)
+mod<- lm(log(A23.8+1) ~   E_Latitudeabs +T_Sla, data = pc_transdummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- exp(fitted)-1
+pc_transdummy<-cbind(pc_transdummy,fitted2)
+
+pdf("_Graph/A23.8divbiomsla_slarange.pdf", height=2.5, width=2.5)
+ggplot(pc_transdummy,aes(x=T_Sla,y=A23.8, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+    scale_shape_manual(values=c(21,22,24)) + 
+  theme_bw()+ theme(panel.grid.minor = element_blank(),legend.position = "none")+
+  ylab('Peak area A23.8 (*10^6 mAU)\n/shoot biomass (g)')+  xlab("sla") +
+  geom_line(data=pc_transdummy, aes(y=fit))+
+  geom_ribbon(data=pc_transdummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+  scale_y_sqrt()
+dev.off()
+
+#All non-latitude phenolics (17.8; 18.8; 21.5)
+df_m = melt(pc_trans[,c(37,40:41,46)])
+df_m$Range <- factor(df_m$Range, levels = rev(levels(df_m$Range)))
+df_m$variable <- gsub('17.8', 'C3', df_m$variable)
+df_m$variable <- gsub('18.8', 'C6', df_m$variable)
+df_m$variable <- gsub('21.5', 'C7', df_m$variable)
+
+#pdf("_Graph/selphen_divbiomsla_range.pdf", height=2.5, width=3)
+#ggplot(data = df_m, aes(x=variable, y=value/1000)) + geom_boxplot(aes(fill=Range ),outlier.colour = NA) +theme_bw()+geom_point(aes(y=value/1000, group=Range, shape=Range), position = position_dodge(width=0.75), cex=0.5)+ guides(fill=F) +theme(panel.grid.minor = element_blank(),legend.position = "none") + ylab(expression('Peak area *(10^6* mAU\n/shoot biomass (g)'))+ xlab("Phenolic compound")+ scale_y_log10(breaks= c(0.01,0.1,1,10),position = "left")+scale_fill_manual(values=c("#619CFF", "#00BA38", "#F8766D"))+scale_shape_manual(values=c(24,22,21)) 
+#dev.off()
+```
+*Jasmonate/biomass responses among ranges*
+---
+```{r}
+#Total number of peaks
+#JASMONATE not significant
+
+#Total 
+pc_meandummy<- phenol_proxy[ ,which(names(phenol_proxy) %in% c("TOTAL","E_Latitudeabs","JASMONATE","Range","RangeJas","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+
+mod<- lm(sqrt(TOTAL)~JASMONATE, data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- fitted^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+pdf("_Graph/peakareajas_treat.pdf", height=2.5, width=2.5)
+ggplot(aes(TOTAL,  x=(JASMONATE), fill=as.factor(JASMONATE)), data=pc_meandummy) + 
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+
+  scale_y_sqrt()+ ylab("Total peak area") +
+  geom_point(position=position_jitterdodge(jitter.width=.2, dodge.width = .75))
+dev.off()
+
+#PEAK1
+pc_meandummy<- phenol_proxy[ ,which(names(phenol_proxy) %in% c("TOTAL","PEAK1","E_Latitudeabs","JASMONATE","Range","RangeJas","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+
+mod<- lm(sqrt(PEAK1)~JASMONATE, data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- fitted^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+pdf("_Graph/i1_treat.pdf", height=2.5, width=2.5)
+ggplot(aes(PEAK1,  x=JASMONATE, fill=as.factor(JASMONATE)), data=pc_meandummy) + 
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+
+  scale_y_sqrt()+ ylab("Peak area I1") +
+  geom_point(position=position_jitterdodge(jitter.width=.2, dodge.width = .75))
+dev.off()
+
+#PEAK2
+pc_meandummy<- phenol_proxy[ ,which(names(phenol_proxy) %in% c("TOTAL","PEAK2","E_Latitudeabs","JASMONATE","Range","RangeJas","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+
+mod<- lm(sqrt(PEAK2)~JASMONATE, data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- fitted^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+pdf("_Graph/i2_treat.pdf", height=2.5, width=2.5)
+ggplot(aes(PEAK2,  x=JASMONATE, fill=as.factor(JASMONATE)), data=pc_meandummy) + 
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+
+  scale_y_sqrt()+ ylab("Peak area I2") +
+  geom_point(position=position_jitterdodge(jitter.width=.2, dodge.width = .75))
+dev.off()
+
+#PEAK3
+pc_meandummy<- phenol_proxy[ ,which(names(phenol_proxy) %in% c("PEAK3","E_Latitudeabs","JASMONATE","Range","RangeJas","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+
+mod<- lm(sqrt(PEAK3)~JASMONATE +  E_Latitudeabs , data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- fitted^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+a<-pc_meandummy[which(pc_meandummy$JASMONATE=="1"),]
+b<-pc_meandummy[which(pc_meandummy$JASMONATE=="2"),]
+
+pdf("_Graph/i3_lat.pdf", height=2.5, width=2.5)
+ggplot(pc_meandummy,aes(x=E_Latitudeabs, y=PEAK3, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=2, aes(fill=factor(Range), alpha=rev(as.character(JASMONATE))))+
+  geom_point(size=2) +  scale_shape_manual(values=c(21,22,24))+ theme_bw()+  
+  ylab("Peak area I3")+ xlab("Absolute latitude") +
+  geom_line(data=a, aes(y=fit)) + 
+  geom_ribbon(data=a,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ 
+  geom_line(data=b,aes(y=fit), lty=2)  + 
+  geom_ribbon(data=b,aes(ymin=lwr,ymax=upr,fill=factor(Range)), alpha=0.1, lty=0) + scale_y_sqrt()+theme(panel.grid.minor = element_blank(),  legend.position = "none")
+dev.off()
+
+pdf("_Graph/i3_treat.pdf", height=2.5, width=.75)
+ggplot(aes(y=PEAK3, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)), data=pc_meandummy) +
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.2, dodge.width = .75), cex=0.5)+
+  scale_x_discrete(limits = rev(levels(pc_meandummy$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none", axis.title.y=element_blank(),axis.text.y=element_blank(),axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) + scale_y_sqrt() +  xlab("")+    ylab("")
+dev.off()
+
+#PEAK4
+pc_meandummy<- phenol_proxy[ ,which(names(phenol_proxy) %in% c("PEAK4","E_Latitudeabs","JASMONATE","Range","RangeJas","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+
+mod<- lm(sqrt(PEAK4)~JASMONATE +  E_Latitudeabs +I(E_Latitudeabs^2) , data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- fitted^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+a<-pc_meandummy[which(pc_meandummy$JASMONATE=="1"),]
+b<-pc_meandummy[which(pc_meandummy$JASMONATE=="2"),]
+
+pdf("_Graph/i4_lat.pdf", height=2.5, width=2.5)
+ggplot(pc_meandummy,aes(x=E_Latitudeabs, y=PEAK4, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=2, aes(fill=factor(Range), alpha=rev(as.character(JASMONATE))))+
+  geom_point(size=2) +  scale_shape_manual(values=c(21,22,24))+ theme_bw()+  ylab("Peak area I4")+ xlab("Absolute latitude") +theme(legend.position = "none")+ geom_line(data=a, aes(y=fit)) + geom_ribbon(data=a,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ geom_line(data=b,aes(y=fit), lty=2)  + geom_ribbon(data=b,aes(ymin=lwr,ymax=upr,fill=factor(Range)), alpha=0.1, lty=0) + scale_y_sqrt(breaks=seq(0,30000, 10), labels=seq(0, 30000,10))+theme(panel.grid.minor = element_blank(),  legend.position = "none")
+dev.off()
+
+pdf("_Graph/i4_treat.pdf", height=2.5, width=.75)
+ggplot(aes(y=PEAK4, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)), data=pc_meandummy) +
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.2, dodge.width = .75),cex=0.5)+
+  scale_x_discrete(limits = rev(levels(pc_meandummy$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none", axis.title.y=element_blank(),axis.text.y=element_blank(),axis.ticks.y=element_blank()) +   scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) + scale_y_sqrt() +  xlab("")+    ylab("")
+dev.off()
+
+
+#PEAK5
+#JASMONATE not significant, but interaction if including SLA
+pc_meandummy<- phenol_proxy[ ,which(names(phenol_proxy) %in% c("PEAK5","E_Latitudeabs","JASMONATE","Range","q","T_Sla"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+mod<- lm(sqrt(PEAK5)~JASMONATE*T_Sla + Range, data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted)^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+a<-pc_meandummy[which(pc_meandummy$JASMONATE=="1"),]
+b<-pc_meandummy[which(pc_meandummy$JASMONATE=="2"),]
+
+pdf("_Graph/slajas_i5.pdf", height=2.5, width=3.5)
+  ggplot(pc_meandummy,aes(x=T_Sla, y=(PEAK5), color=factor(Range), shape=factor(Range))) +
+  geom_point(size=2, aes(fill=factor(Range), alpha=((JASMONATE))))+ scale_alpha_discrete(range=c(1 ,0.5))+
+  geom_point(size=2) +  scale_shape_manual(values=c(21,22,24))+ theme_bw()+    ylab("")+  xlab("sla") +theme(legend.position = "none")+ geom_line(data=a, aes(y=fit)) + geom_ribbon(data=a,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ geom_line(data=b,aes(y=fit), lty=2)  + geom_ribbon(data=b,aes(ymin=lwr,ymax=upr,fill=factor(Range)), alpha=0.1, lty=0)+ scale_y_sqrt()+  scale_x_log10()+ ylab("I5")
+dev.off()
+
+pdf("_Graph/range_i5.pdf", height=2.5, width=1.5)
+ggplot(aes(y=PEAK5, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)), data=pc_meandummy) + geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ scale_x_discrete(limits = rev(levels(pc_meandummy$Range)), breaks=NULL) + theme(  legend.position = "none") + scale_shape_manual(values =c(21,22,24)) + scale_alpha_discrete(range=c(1 ,0.5)) + scale_y_sqrt() +  xlab("")+    ylab("")
+dev.off()
+
+#PEAK6
+pc_meandummy<- phenol_proxy[ ,which(names(phenol_proxy) %in% c("PEAK6","E_Latitudeabs","JASMONATE","Range","RangeJas","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+
+mod<- lm(sqrt(PEAK6)~JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2) , data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- fitted^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+a<-pc_meandummy[which(pc_meandummy$JASMONATE=="1"),]
+b<-pc_meandummy[which(pc_meandummy$JASMONATE=="2"),]
+
+pdf("_Graph/i6_lat.pdf", height=2.5, width=2.5)
+ggplot(pc_meandummy,aes(x=E_Latitudeabs, y=PEAK6, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=2, aes(fill=factor(Range), alpha=rev(as.character(JASMONATE))))+
+  geom_point(size=2) +  scale_shape_manual(values=c(21,22,24))+ theme_bw()+  ylab("Peak area I6")+ xlab("Absolute latitude") +theme(legend.position = "none")+ geom_line(data=a, aes(y=fit)) + geom_ribbon(data=a,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ geom_line(data=b,aes(y=fit), lty=2)  + geom_ribbon(data=b,aes(ymin=lwr,ymax=upr,fill=factor(Range)), alpha=0.1, lty=0) + 
+  scale_y_sqrt(limits=c(0,1.6))+theme(panel.grid.minor = element_blank(),  legend.position = "none")
+dev.off()
+
+pdf("_Graph/i6_treat.pdf", height=2.5, width=.75)
+ggplot(aes(y=PEAK6, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)), data=pc_meandummy) +
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.2, dodge.width = .75),cex=0.5)+
+  scale_x_discrete(limits = rev(levels(pc_meandummy$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none", axis.title.y=element_blank(),axis.text.y=element_blank(),axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) + scale_y_sqrt(limits=c(0,1.6)) +  xlab("")+    ylab("")
+dev.off()
+
+
+#PEAK7
+pc_meandummy<- phenol_proxy[ ,which(names(phenol_proxy) %in% c("PEAK7","E_Latitudeabs","JASMONATE","Range","RangeJas","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+
+mod<- lm(sqrt(PEAK7)~JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2) , data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- fitted^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+a<-pc_meandummy[which(pc_meandummy$JASMONATE=="1"),]
+b<-pc_meandummy[which(pc_meandummy$JASMONATE=="2"),]
+
+pdf("_Graph/i7_lat.pdf", height=2.5, width=2.5)
+ggplot(pc_meandummy,aes(x=E_Latitudeabs, y=PEAK7, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=2, aes(fill=factor(Range), alpha=rev(as.character(JASMONATE))))+
+  geom_point(size=2) +  scale_shape_manual(values=c(21,22,24))+ theme_bw()+  ylab("Peak area I7")+ xlab("Absolute latitude") +theme(legend.position = "none")+ geom_line(data=a, aes(y=fit)) + geom_ribbon(data=a,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ geom_line(data=b,aes(y=fit), lty=2)  + geom_ribbon(data=b,aes(ymin=lwr,ymax=upr,fill=factor(Range)), alpha=0.1, lty=0) + scale_y_sqrt()+theme(panel.grid.minor = element_blank(),  legend.position = "none")
+dev.off()
+
+pdf("_Graph/i7_treat.pdf", height=2.5, width=.75)
+ggplot(aes(y=PEAK7, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)), data=pc_meandummy) +
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.2, dodge.width = .75), cex=0.5)+
+  scale_x_discrete(limits = rev(levels(pc_meandummy$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none", axis.title.y=element_blank(),axis.text.y=element_blank(),axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) + scale_y_sqrt() +  xlab("")+    ylab("")
+dev.off()
+
+#PEAK8
+pc_meandummy<- phenol_proxy[ ,which(names(phenol_proxy) %in% c("PEAK8","E_Latitudeabs","JASMONATE","Range","RangeJas","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+
+mod<- lm(sqrt(PEAK8)~JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2) , data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- fitted^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+a<-pc_meandummy[which(pc_meandummy$JASMONATE=="1"),]
+b<-pc_meandummy[which(pc_meandummy$JASMONATE=="2"),]
+
+pdf("_Graph/i8_lat.pdf", height=2.5, width=2.5)
+ggplot(pc_meandummy,aes(x=E_Latitudeabs, y=PEAK8, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=2, aes(fill=factor(Range), alpha=rev(as.character(JASMONATE))))+
+  geom_point(size=2) +  scale_shape_manual(values=c(21,22,24))+ theme_bw()+  ylab("Peak area I8")+ xlab("Absolute latitude") +theme(legend.position = "none")+ geom_line(data=a, aes(y=fit)) + geom_ribbon(data=a,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ geom_line(data=b,aes(y=fit), lty=2)  + geom_ribbon(data=b,aes(ymin=lwr,ymax=upr,fill=factor(Range)), alpha=0.1, lty=0) + scale_y_sqrt()+theme(panel.grid.minor = element_blank(),  legend.position = "none")
+dev.off()
+
+pdf("_Graph/i8_treat.pdf", height=2.5, width=.75)
+ggplot(aes(y=PEAK8, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)), data=pc_meandummy) +
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.2, dodge.width = .75), cex=0.5)+
+  scale_x_discrete(limits = rev(levels(pc_meandummy$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none", axis.title.y=element_blank(),axis.text.y=element_blank(),axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) + scale_y_sqrt() +  xlab("")+    ylab("")
+dev.off()
+
+#PEAK9
+pc_meandummy<- phenol_proxy[ ,which(names(phenol_proxy) %in% c("PEAK9","E_Latitudeabs","JASMONATE","Range","RangeJas","q"))]
+pc_meandummy<-pc_meandummy[complete.cases(pc_meandummy), ]
+
+mod<- lm(sqrt(PEAK9)~JASMONATE*E_Latitudeabs , data = pc_meandummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- fitted^2
+pc_meandummy<-cbind(pc_meandummy,fitted2)
+
+a<-pc_meandummy[which(pc_meandummy$JASMONATE=="1"),]
+b<-pc_meandummy[which(pc_meandummy$JASMONATE=="2"),]
+
+pdf("_Graph/i9_lat.pdf", height=2.5, width=2.5)
+ggplot(pc_meandummy,aes(x=E_Latitudeabs, y=PEAK9, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=2, aes(fill=factor(Range), alpha=rev(as.character(JASMONATE))))+
+  geom_point(size=2) +  scale_shape_manual(values=c(21,22,24))+ theme_bw()+  ylab("Peak area I9")+ xlab("Absolute latitude") +theme(legend.position = "none")+ geom_line(data=a, aes(y=fit)) + geom_ribbon(data=a,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ geom_line(data=b,aes(y=fit), lty=2)  + geom_ribbon(data=b,aes(ymin=lwr,ymax=upr,fill=factor(Range)), alpha=0.1, lty=0) + scale_y_sqrt()+theme(panel.grid.minor = element_blank(),  legend.position = "none")
+dev.off()
+
+pdf("_Graph/i9_treat.pdf", height=2.5, width=.75)
+ggplot(aes(y=PEAK9, x=Range, fill=as.factor(Range), shape=factor(Range), alpha=as.factor(JASMONATE), linetype=as.factor(JASMONATE)), data=pc_meandummy) +
+  geom_boxplot(outlier.colour = NA) + theme_bw() + guides(fill=F)+ 
+   geom_point(position=position_jitterdodge(jitter.width=.2, dodge.width = .75), cex=0.5)+
+  scale_x_discrete(limits = rev(levels(pc_meandummy$Range)), breaks=NULL) + 
+  theme( panel.grid.minor = element_blank(),  legend.position = "none", axis.title.y=element_blank(),axis.text.y=element_blank(),axis.ticks.y=element_blank()) + 
+  scale_shape_manual(values =c(21,22,24)) + 
+  scale_alpha_discrete(range=c(1 ,0.5)) + scale_y_sqrt() +  xlab("")+    ylab("")
+dev.off()
+
+#PEAK10
+#JASMONATE not significant
+
+#PEAK11
+#JASMONATE not significant
+```
+
+
+*Trade-offs*
+---
+
+Performance-trait associations, main exp, Number of peaks, ind level, no shootbiom
+```{r}
+# Number of peaks
+phendummy<- phenC[ ,which(names(phenC) %in% c("Peaks","T_maxHeight_cm","Range","Pop"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lm(sqrt(T_maxHeight_cm)~(Peaks)+Range, data = phendummy)
+fitted <- predict(m, interval="confidence")
+fitted2 <- (fitted)^2
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/peaksheight.pdf",height=2.5,width = 2.5)
+ggplot(phendummy, aes(Peaks, T_maxHeight_cm, color=factor(Range), shape=factor(Range)))+
+    geom_line(data=phendummy, aes(y=fit))+
+    geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) +
+    theme_bw()+ylab("Max height (cm)") +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab('Number of peaks ')
+dev.off()
+
+
+##peaks vs growth
+phendummy<- phenC[ ,which(names(phenC) %in% c("Peaks","T_MaxSlope_cm_Day","Range" ,"Pop"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lm((T_MaxSlope_cm_Day)~(Peaks)+Range, data = phendummy)
+fitted <- predict(m, interval="confidence")
+fitted2 <- (fitted)
+phendummy<-cbind(phendummy,fitted2)
+
+
+pdf("_Graph/gropeaks.pdf",height=2.5,width = 2.5)
+ggplot(phendummy, aes(Peaks, T_MaxSlope_cm_Day, color=factor(Range), shape=factor(Range)))+
+    geom_line(data=phendummy, aes(y=fit))+
+    geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) +
+    theme_bw()+ylab("Max growth rate (cm/day)") +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab('Number of peaks ')
+dev.off()
+
+##fitness vs number of peaks
+phendummy<- phenC[ ,which(names(phenC) %in% c("Peaks","T_fit_all","Range","Pop" ))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm((T_fit_all)~(Peaks) , data=phenC)
+fitted <- predict(m, interval="confidence")
+fitted2 <- (fitted)
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/fitpeaks.pdf",height=2.5,width = 2.5)
+ggplot(phendummy, aes(Peaks, T_fit_all, color=factor(Range), shape=factor(Range)))+
+    geom_line(data=phendummy, aes(y=fit))+
+    geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) +
+    theme_bw()+ylab("Total reproductive biomass (g)") +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab('Number of peaks ')
+dev.off()
+
+##SLA vs number of peaks
+phendummy<- phenC[ ,which(names(phenC) %in% c("Peaks","T_Sla","Range","Pop" ))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(log(T_Sla)~(Peaks) , data=phenC)
+fitted <- predict(m, interval="confidence")
+fitted2 <- exp(fitted)
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/slapeaks.pdf",height=2.5,width = 2.5)
+ggplot(phendummy, aes(Peaks, T_Sla, color=factor(Range), shape=factor(Range)))+
+    geom_line(data=phendummy, aes(y=fit))+
+    geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) +
+    theme_bw()+ylab(bquote('Specific leaf area' ~(mm^2/mg)~ " ")) +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab('Number of peaks ')
+dev.off()
+
+
+#### PEAKAREA
+
+# Number of sqrt(PeakArea)
+phendummy<- phenC[ ,which(names(phenC) %in% c("PeakArea","T_maxHeight_cm","Range","Pop"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(sqrt(T_maxHeight_cm)~sqrt(PeakArea)+Range, data = phendummy)
+fitted <- predict(m, interval="confidence")
+fitted2 <- (fitted)^2
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/heightpeakarea.pdf",height=2.5,width = 2.5)
+ggplot(phendummy, aes(PeakArea/1000000, T_maxHeight_cm, color=factor(Range), shape=factor(Range)))+
+    geom_line(data=phendummy, aes(y=fit))+
+    geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) +
+    theme_bw()+ylab("Max height (cm)") +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+    scale_x_sqrt()+
+    xlab(expression('Total peak area (*' *10^6* ' mAU)'))
+dev.off()
+
+##sqrt(PeakArea) vs growth
+phendummy<- phenC[ ,which(names(phenC) %in% c("PeakArea","T_MaxSlope_cm_Day","Range" ,"Pop"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(T_MaxSlope_cm_Day~sqrt(PeakArea)+Range, data = phendummy)
+fitted <- predict(m, interval="confidence")
+fitted2 <- (fitted)
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/gropeakarea.pdf",height=2.5,width = 2.5)
+ggplot(phendummy, aes(PeakArea/1000000, T_MaxSlope_cm_Day, color=factor(Range), shape=factor(Range)))+
+    geom_line(data=phendummy, aes(y=fit))+
+    geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) +
+    theme_bw()+ylab("Max slope (cm/day)\n (partial residuals")+
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+    scale_x_sqrt()+
+    xlab(expression('Total peak area (*' *10^6* ' mAU)'))
+dev.off()
+
+##fitness vs number of sqrt(PeakArea)
+phendummy<- phenC[ ,which(names(phenC) %in% c("PeakArea","T_fit_all","Range","Pop" ))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm((T_fit_all)~sqrt(PeakArea)  , data = phendummy)
+fitted <- predict(m, interval="confidence")
+fitted2 <- (fitted)
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/fitpeakarea.pdf",height=2.5,width = 2.5)
+ggplot(phendummy, aes(PeakArea/1000000, T_fit_all, color=factor(Range), shape=factor(Range)))+
+    geom_line(data=phendummy, aes(y=fit))+
+    geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) +
+    theme_bw()+ylab("Total reproductive biomass (g)\n (partial residuals")+
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+    scale_x_sqrt()+
+    xlab(expression('Total peak area (*' *10^6* ' mAU)'))
+dev.off()
+
+##SLA vs number of sqrt(PeakArea)
+phendummy<- phenC[ ,which(names(phenC) %in% c("PeakArea","T_Sla","Range","Pop" ))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(log(T_Sla)~sqrt(PeakArea), data = phendummy)
+fitted <- predict(m, interval="confidence")
+fitted2 <- exp(fitted)
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/slapeakarea.pdf",height=2.5,width = 2.5)
+ggplot(phendummy, aes(PeakArea/1000000, T_Sla, color=factor(Range), shape=factor(Range)))+
+    geom_line(data=phendummy, aes(y=fit))+
+    geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) +
+    theme_bw()+ylab(bquote('Specific leaf area' ~(mm^2/mg)~ ' \n (partial residuals)')) +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+    scale_x_sqrt()+
+    xlab(expression('Total peak area (*' *10^6* ' mAU)'))
+dev.off()
+
+
+###NUMBER OF TRICHOMES
+
+
+# Trichome) vs height
+phendummy<- phenC[ ,which(names(phenC) %in% c("Trichome","T_maxHeight_cm","Range","Pop"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(sqrt(T_maxHeight_cm)~log(Trichome)+Range, data = phendummy)
+fitted <- predict(m, interval="confidence")
+fitted2 <- (fitted)^2
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/heightrichome.pdf",height=2.5,width = 2.5)
+ggplot(phendummy, aes(Trichome, T_maxHeight_cm, color=factor(Range), shape=factor(Range)))+
+    geom_line(data=phendummy, aes(y=fit))+
+    geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) +
+    theme_bw()+ylab("Max height (cm)") +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none") +   scale_x_log10(breaks=seq(50,150,50))+  xlab("Number of trichomes")
+dev.off()
+
+##Trichome) vs growth
+phendummy<- phenC[ ,which(names(phenC) %in% c("Trichome","T_MaxSlope_cm_Day","Range" ,"Pop"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(T_MaxSlope_cm_Day~log(Trichome), data = phendummy)
+fitted <- predict(m, interval="confidence")
+fitted2 <- (fitted)
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/groTrichome.pdf",height=2.5,width = 2.5)
+ggplot(phendummy, aes(Trichome, T_MaxSlope_cm_Day, color=factor(Range), shape=factor(Range)))+
+    geom_line(data=phendummy, aes(y=fit))+
+    geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) +
+    theme_bw()+ylab("Max slope (cm/day)\n (partial residuals")+
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+    scale_x_log10(breaks=seq(50,150,50))+  xlab("Number of trichomes")
+dev.off()
+
+##fitness vs Trichome
+phendummy<- phenC[ ,which(names(phenC) %in% c("Trichome","T_fit_all","Range","Pop" ))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm((T_fit_all)~log(Trichome)  , data = phendummy)
+fitted <- predict(m, interval="confidence")
+fitted2 <- (fitted)
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/fitTrichome.pdf",height=2.5,width = 2.5)
+ggplot(phendummy, aes(Trichome, T_fit_all, color=factor(Range), shape=factor(Range)))+
+    geom_line(data=phendummy, aes(y=fit))+
+    geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) +
+    theme_bw()+ylab("Total reproductive biomass (g)\n (partial residuals")+
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+    scale_x_log10(breaks=seq(50,150,50))+  xlab("Number of trichomes")
+dev.off()
+
+##SLA vs Trichome
+phendummy<- phenC[ ,which(names(phenC) %in% c("Trichome","T_Sla","Range","Pop" ))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(log(T_Sla)~log(Trichome), data = phendummy)
+fitted <- predict(m, interval="confidence")
+fitted2 <- exp(fitted)
+phendummy<-cbind(phendummy,fitted2)
+
+pdf("_Graph/slaTrichome.pdf",height=2.5,width = 2.5)
+ggplot(phendummy, aes(Trichome, T_Sla, color=factor(Range), shape=factor(Range)))+
+    geom_line(data=phendummy, aes(y=fit))+
+    geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+
+    geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) +
+    theme_bw()+ylab(bquote('Specific leaf area' ~(mm^2/mg)~ ' \n (partial residuals)')) +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+    scale_x_log10(breaks=seq(50,150,50))+  xlab("Number of trichomes")
+dev.off()
+
+```
+
+Performance-trait associations, main exp, Number of peaks, ind level, shootbiom
+```{r}
+# Number of peaks
+phendummy<- phenC[ ,which(names(phenC) %in% c("Peaks","T_maxHeight_cm","Range","Pop", "T_shoot_biom"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lm(sqrt(T_maxHeight_cm)~(Peaks)+Range*sqrt(T_shoot_biom), data = phendummy)
+v= visreg(m, xvar="Peaks", by="Range")
+
+pdf("_Graph/peaksheight_covsb.pdf",height=2.5,width = 2.5)
+ggplot(v$fit, aes(Peaks, visregFit, color=factor(Range), shape=factor(Range)))+
+    geom_line()+
+    geom_ribbon(aes(ymin=visregLwr, ymax=visregUpr,fill=factor(Range)), alpha=.3, lty=0)+
+    geom_point(data=v$res, aes(Peaks, visregRes,fill=factor(Range)), size=1)+
+    theme_bw()+ylab("Max height (cm)\n(partial residuals)") +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab('Number of peaks ')
+dev.off()
+
+phendummy$sb<-mean(phendummy$T_shoot_biom)
+mod<- lm(sqrt(T_maxHeight_cm)~(Peaks)+Range*sqrt(sb), data = phendummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted)^2
+phendummy<-cbind(phendummy,fitted2)
+
+ggplot(phendummy,aes(x=Peaks,y=T_maxHeight_cm, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) + theme_bw()+ylab("Max height (cm)") +theme(legend.position = "none")+ geom_line(data=phendummy, aes(y=fit)) + geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ scale_y_sqrt()+theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab('Number of peaks ')
+
+
+##peaks vs growth
+phendummy<- phenC[ ,which(names(phenC) %in% c("Peaks","T_MaxSlope_cm_Day","Range" ,"Pop", "T_shoot_biom"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+
+m = lm((T_MaxSlope_cm_Day)~(Peaks)+Range*sqrt(T_shoot_biom), data = phendummy)
+v= visreg(m, xvar="Peaks", by="Range")
+
+pdf("_Graph/gropeaks_covsb.pdf",height=2.5,width = 2.5)
+ggplot(v$fit, aes(Peaks, visregFit, color=factor(Range), shape=factor(Range)))+
+    geom_line()+
+    geom_ribbon(aes(ymin=visregLwr, ymax=visregUpr,fill=factor(Range)), alpha=.3, lty=0)+
+    geom_point(data=v$res, aes(Peaks, visregRes,fill=factor(Range)), size=1)+
+    theme_bw()+ylab("Max growth rate (cm/day)\n(partial residuals)") +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab('Number of peaks ')
+dev.off()
+
+phendummy$sb<-mean(phendummy$T_shoot_biom)
+mod<- lm((T_MaxSlope_cm_Day)~(Peaks)+Range*sqrt(sb), data = phendummy)
+fitted <- predict(mod, interval="confidence")
+phendummy<-cbind(phendummy,fitted)
+
+ggplot(phendummy,aes(x=Peaks,y=T_MaxSlope_cm_Day, color=factor(Range), shape=factor(Range))) +  geom_point(size=1,  aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) + theme_bw()+ylab("Max growth rate (cm/day)") +theme(legend.position = "none")+ geom_line(data=phendummy, aes(y=fit)) + geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab('Number of peaks ')
+
+##fitness vs number of peaks
+phendummy<- phenC[ ,which(names(phenC) %in% c("Peaks","T_fit_all","Range","Pop", "T_shoot_biom" ))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm((T_fit_all)~(Peaks)+Range*sqrt(T_shoot_biom) , data=phenC)
+v = visreg(m, xvar="Peaks", by="Range")
+
+pdf("_Graph/fitpeaks_covsb.pdf",height=2.5,width = 2.5)
+ggplot(v$fit, aes(Peaks, visregFit, color=factor(Range), shape=factor(Range)))+
+    geom_line()+
+    geom_ribbon(aes(ymin=visregLwr, ymax=visregUpr,fill=factor(Range)), alpha=.3, lty=0)+
+    geom_point(data=v$res, aes(Peaks, visregRes,fill=factor(Range)), size=1)+
+    theme_bw()+ylab("Total reproductive biomass (g)\n(partial residuals)") +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab('Number of peaks ')
+dev.off()
+
+phendummy$sb<-mean(phendummy$T_shoot_biom)
+mod<- lm((T_fit_all)~(Peaks)+Range*sqrt(sb), data = phendummy)
+fitted <- predict(mod, interval="confidence")
+phendummy<-cbind(phendummy,fitted)
+
+ggplot(phendummy,aes(x=Peaks,y=T_fit_all, color=factor(Range), shape=factor(Range))) +  geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) + theme_bw()+ylab("Total reproductive biomass (g)") +theme(legend.position = "none")+ geom_line(data=phendummy, aes(y=fit)) + geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr,fill=factor(Range)),alpha=0.3, lty=0)+ theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab('Number of peaks ')
+
+##SLA vs number of peaks
+phendummy<- phenC[ ,which(names(phenC) %in% c("Peaks","T_Sla","Range","Pop" , "T_shoot_biom"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(log(T_Sla)~(Peaks)+Range + T_shoot_biom_sq  , data=phenC)
+v = visreg(m, xvar="Peaks", by="Range")
+
+pdf("_Graph/slapeaks_covsb.pdf",height=2.5,width = 2.5)
+ggplot(v$fit, aes(Peaks, visregFit, color=factor(Range), shape=factor(Range)))+
+    geom_line()+
+    geom_ribbon(aes(ymin=visregLwr, ymax=visregUpr,fill=factor(Range)), alpha=.3, lty=0)+
+    geom_point(data=v$res, aes(Peaks, visregRes,fill=factor(Range)), size=1)+
+    theme_bw()+ylab(bquote('Specific leaf area' ~(mm^2/mg)~ " \n(partial residuals)")) +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab('Number of peaks ')
+dev.off()
+
+phendummy$sb<-mean(phendummy$T_shoot_biom)
+mod<- lm(log(T_Sla)~(Peaks)*Range + Range*sb , data = phendummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 = exp(fitted)
+phendummy<-cbind(phendummy,fitted2)
+
+ggplot(phendummy,aes(x=Peaks,y=T_Sla, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) + theme_bw()+ylab(bquote('Specific leaf area' ~(mm^2/mg))) +theme(legend.position = "none")+ geom_line(data=phendummy, aes(y=fit)) + geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr ),alpha=0.1, lty=1)+ scale_y_log10(breaks=seq(30,100, 20), labels=seq(30,100, 20))+theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab('Number of peaks ')
+
+#### PEAKAREA
+
+# Number of sqrt(PeakArea)
+phendummy<- phenC[ ,which(names(phenC) %in% c("PeakArea","T_maxHeight_cm","Range","Pop", "T_shoot_biom"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(sqrt(T_maxHeight_cm)~sqrt(PeakArea)+Range*sqrt(T_shoot_biom), data = phendummy)
+v= visreg(m, xvar="PeakArea", by="Range")
+
+pdf("_Graph/heightpeakarea_covsb.pdf",height=2.5,width = 2.5)
+ggplot(v$fit, aes(PeakArea/1000000, visregFit, color=factor(Range), shape=factor(Range)))+
+    geom_line()+
+    geom_ribbon(aes(ymin=visregLwr, ymax=visregUpr,fill=factor(Range)), alpha=.3, lty=0)+
+    geom_point(data=v$res, aes(PeakArea/1000000, visregRes,fill=factor(Range)), size=1)+
+    theme_bw()+ylab("Max height (cm)\n(partial residuals)") +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+    scale_x_sqrt()+
+    xlab(expression('Total peak area (*' *10^6* ' mAU)'))
+dev.off()
+
+mod<- lm(sqrt(T_maxHeight_cm)~sqrt(PeakArea)+Range*sqrt(T_shoot_biom), data = phendummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 <- (fitted)^2
+phendummy<-cbind(phendummy,fitted2)
+
+ggplot(phendummy,aes(x=PeakArea/1000000,y=T_maxHeight_cm, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) + theme_bw()+ylab("Max height (cm)") +theme(legend.position = "none")+ geom_line(data=phendummy, aes(y=fit)) + geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+ scale_y_sqrt()+theme(panel.grid.minor = element_blank(),  legend.position = "none")+ scale_x_sqrt()+xlab(expression('Total peak area (*' *10^6* ' mAU)'))
+
+##sqrt(PeakArea) vs growth
+phendummy<- phenC[ ,which(names(phenC) %in% c("PeakArea","T_MaxSlope_cm_Day","Range" ,"Pop", "T_shoot_biom"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(T_MaxSlope_cm_Day~sqrt(PeakArea)+Range*sqrt(T_shoot_biom), data = phendummy)
+v= visreg(m, xvar="PeakArea", by="Range")
+
+pdf("_Graph/gropeakarea_covsb.pdf",height=2.5,width = 2.5)
+ggplot(v$fit, aes(PeakArea/1000000, visregFit, color=factor(Range), shape=factor(Range)))+
+    geom_line()+
+    geom_ribbon(aes(ymin=visregLwr, ymax=visregUpr,fill=factor(Range)), alpha=.3, lty=0)+
+    geom_point(data=v$res, aes(PeakArea/1000000, visregRes,fill=factor(Range)), size=1)+
+    theme_bw()+ylab("Max slope (cm/day)\n (partial residuals")+
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+    scale_x_sqrt()+
+    xlab(expression('Total peak area (*' *10^6* ' mAU)'))
+dev.off()
+
+mod<- lm(T_MaxSlope_cm_Day~sqrt(PeakArea)+Range*sqrt(T_shoot_biom), data = phendummy)
+fitted <- predict(mod, interval="confidence")
+phendummy<-cbind(phendummy,fitted)
+
+ggplot(phendummy,aes(x=PeakArea/1000000,y=T_MaxSlope_cm_Day, color=factor(Range), shape=factor(Range))) +  geom_point(size=1,  aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) + theme_bw()+ylab("Max slope (cm/day)") +theme(legend.position = "none")+ geom_line(data=phendummy, aes(y=fit)) + geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr, fill=factor(Range)),alpha=0.3, lty=0)+theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab(expression('Total peak area ' *(10^6* ' mAU')))+scale_x_sqrt()
+
+##fitness vs number of sqrt(PeakArea)
+phendummy<- phenC[ ,which(names(phenC) %in% c("PeakArea","T_fit_all","Range","Pop" , "T_shoot_biom"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm((T_fit_all)~sqrt(PeakArea)*Range+ Range * sqrt(T_shoot_biom), data = phendummy)
+v= visreg(m, xvar="PeakArea", by="Range")
+
+pdf("_Graph/fitpeakarea_covsb.pdf",height=2.5,width = 2.5)
+ggplot(v$fit, aes(PeakArea/1000000, visregFit, color=factor(Range), shape=factor(Range)))+
+    geom_line()+
+    geom_ribbon(aes(ymin=visregLwr, ymax=visregUpr,fill=factor(Range)), alpha=.3, lty=0)+
+    geom_point(data=v$res, aes(PeakArea/1000000, visregRes,fill=factor(Range)), size=1)+
+    theme_bw()+ylab("Total reproductive biomass (g)\n (partial residuals")+
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+    scale_x_sqrt()+
+    xlab(expression('Total peak area (*' *10^6* ' mAU)'))
+dev.off()
+
+mod<- lm((T_fit_all)~sqrt(PeakArea)*Range+ Range * sqrt(sb), data = phendummy)
+fitted <- predict(mod, interval="confidence")
+phendummy<-cbind(phendummy,fitted)
+
+ggplot(phendummy,aes(x=PeakArea/1000000,y=T_fit_all, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) + theme_bw()+ylab("Total reproductive biomass (g)") +theme(legend.position = "none")+ geom_line(data=phendummy, aes(y=fit)) + geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr) ,alpha=0.1, lty=1)+ theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab(expression('Total peak area ' *(10^6* ' mAU')))+scale_x_sqrt()
+
+##SLA vs number of sqrt(PeakArea)
+phendummy<- phenC[ ,which(names(phenC) %in% c("PeakArea","T_Sla","Range","Pop" , "T_shoot_biom"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(log(T_Sla)~sqrt(PeakArea)+Range+sqrt(T_shoot_biom), data = phendummy)
+v= visreg(m, xvar="PeakArea", by="Range")
+
+pdf("_Graph/slapeakarea_covsb.pdf",height=2.5,width = 2.5)
+ggplot(v$fit, aes(PeakArea/1000000, visregFit, color=factor(Range), shape=factor(Range)))+
+    geom_line()+
+    geom_ribbon(aes(ymin=visregLwr, ymax=visregUpr,fill=factor(Range)), alpha=.3, lty=0)+
+    geom_point(data=v$res, aes(PeakArea/1000000, visregRes,fill=factor(Range)), size=1)+
+    theme_bw()+ylab(bquote('Specific leaf area' ~(mm^2/mg)~ ' \n (partial residuals)')) +
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+    scale_x_sqrt()+
+    xlab(expression('Total peak area (*' *10^6* ' mAU)'))
+dev.off()
+
+mod<- lm(log(T_Sla)~(sqrt(PeakArea)), data = phendummy)
+fitted <- predict(mod, interval="confidence")
+fitted2 = exp(fitted)
+phendummy<-cbind(phendummy,fitted2)
+
+ggplot(phendummy,aes(x=PeakArea/1000000,y=T_Sla, color=factor(Range), shape=factor(Range))) +
+  geom_point(size=1, aes(fill=factor(Range)))+  scale_shape_manual(values=c(21,22,24)) + theme_bw()+ylab(bquote('Specific leaf area' ~(mm^2/mg)))  +theme(legend.position = "none")+ geom_line(data=phendummy, aes(y=fit)) + geom_ribbon(data=phendummy,aes(ymin=lwr,ymax=upr),alpha=0.1, lty=1)+ scale_y_log10(breaks=seq(30,120, 20), labels=seq(30,120, 20))+theme(panel.grid.minor = element_blank(),  legend.position = "none")+ xlab(expression('Total peak area ' *(10^6* ' mAU'))) +scale_x_sqrt()
+
+
+###NUMBER OF TRICHOMES
+
+##Trichome) vs growth
+phendummy<- phenC[ ,which(names(phenC) %in% c("Trichome","T_MaxSlope_cm_Day","Range" ,"Pop", "T_shoot_biom"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(T_MaxSlope_cm_Day~log(Trichome)+Range*sqrt(T_shoot_biom), data = phendummy)
+v= visreg(m, xvar="Trichome", by="Range")
+
+pdf("_Graph/groTrichome_covsb.pdf",height=2.5,width = 2.5)
+ggplot(v$fit, aes(Trichome, visregFit, color=factor(Range), shape=factor(Range)))+
+    geom_line()+
+    geom_ribbon(aes(ymin=visregLwr, ymax=visregUpr,fill=factor(Range)), alpha=.3, lty=0)+
+    geom_point(data=v$res, aes(Trichome, visregRes,fill=factor(Range)), size=1)+
+    theme_bw()+ylab("Max slope (cm/day)\n (partial residuals")+
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+    scale_x_log10(breaks=seq(50,150,50))+  xlab("Number of trichomes")
+dev.off()
+
+
+###
+phendummy<- phenC[ ,which(names(phenC) %in% c("Peaks","PeakArea","Range" ,"Pop", "T_shoot_biom"))]
+phendummy<-phendummy[complete.cases(phendummy), ]
+m = lm(Peaks ~ sqrt(PeakArea) * Range + sqrt(T_shoot_biom), data = phendummy)
+v= visreg(m, xvar="PeakArea", by="Range")
+
+pdf("_Graph/areapeaks_covsb.pdf",height=2.5,width = 2.5)
+ggplot(v$fit, aes(PeakArea/1000000, visregFit, color=factor(Range), shape=factor(Range)))+
+    geom_line()+
+    geom_ribbon(aes(ymin=visregLwr, ymax=visregUpr,fill=factor(Range)), alpha=.3, lty=0)+
+    geom_point(data=v$res, aes(PeakArea/1000000, visregRes,fill=factor(Range)), size=1)+
+    theme_bw()+ylab('Number of peaks ')+
+    theme(panel.grid.minor = element_blank(),  legend.position = "none")+
+ xlab(expression('Total peak area ' *(10^6* ' mAU'))) +scale_x_sqrt()
+dev.off()
+```
+
+
+*END SCRIPT*
+===

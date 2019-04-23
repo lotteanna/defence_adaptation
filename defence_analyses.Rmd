@@ -1,0 +1,2057 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+*Load libraries* IMPORTANT --> DO NOT SKIP
+---
+```{r, include=F}
+library(dplyr)
+library(ggfortify)
+library(nlme)
+library(lmerTest)
+library(lme4)
+library(mvpart) # for MRT, package needs to be installed from github using devtools::install_github("cran/mvpart")
+library(visreg)
+library(gridExtra)
+library(phia) #testInteractions
+library(Hmisc) # for rcorr
+library(reshape)
+library(tidyr)
+```
+
+
+*how are the peaks correlated between greenhouses*
+---
+constitutive	induction
+A15.7	peak2
+A17.4	peak3
+A17.8	peak4
+A18.3	peak5
+A18.6	peak6
+A18.8	peak7
+A21.5	peak10
+A21.9	peak11
+A23.8	missing
+
+*Load data* IMPORTANT --> DO NOT SKIP
+---
+```{r}
+phen <- read.table("phen.txt", header=T) #non-transformed individual traits
+pc_mean <-read.table("pc_mean.txt", header=T) #population mean traits + bioclimatic variables
+#pc_trans = read.table("pc_trans.txt", header=T) #defence traits are transformed by shoot biomass
+
+phen = phen[ ,-which(names(phen) %in% c("A23.8" ))]
+pc_mean = pc_mean[ ,-which(names(pc_mean) %in% c("A23.8" ))]
+
+phen$PeakArea = rowSums(phen[,c(38:45)])
+pc_mean$PeakArea = rowSums(pc_mean[,c(35:42)])
+```
+
+
+*Create subsets cons* IMPORTANT --> DO NOT SKIP
+---
+
+```{r}
+phenC <- phen[which(phen$Treatment == 'C'),]
+pc_meanC <- pc_mean[which(pc_mean$Treatment == 'C'),]
+```
+
+*Create subsets induc* IMPORTANT --> DO NOT SKIP
+---
+
+```{r}
+jas = read.table("Jasmonateexp.corrected.txt", header=T)
+jas = jas[ ,-which(names(jas) %in% c("PEAK1","PEAK8","PEAK9" ))]
+jas$JASMONATE = as.factor(jas$JASMONATE)
+jas$WEIGHT = jas$WEIGHT/1000
+tmp1 = jas[,-c(1,5)]
+tmp2=tmp1
+colnames(tmp1)
+tmp2[,c(8:16)] =tmp1[,c(8:16)]/tmp1$WEIGHT
+jas$TOTAL = rowSums(jas[,c(8:16)])
+
+agg_jas_mean <- aggregate(tmp2, by= list(tmp2$JASMONATE, tmp2$Pop), FUN=mean, na.rm=T)
+colnames(agg_jas_mean)[1:2] <- c("JASMONATE", "Pop")
+agg_jas_mean <- agg_jas_mean[,-c(3:6)] # remove empty columns
+phenol = left_join(agg_jas_mean, pc_meanC, by="Pop")
+
+phenol = phenol[-which(names(phenol)=="Treatment")]
+
+agg_mom_mean <- aggregate(phenC, by= list(phenC$Mom), FUN=mean, na.rm=T)
+colnames(agg_mom_mean)[1] <- c("Mom")
+d <- phenC[,2:4] #Get Pop and Range columns
+d <- distinct(d) # remove all duplicate rows
+agg_mom_mean <- agg_mom_mean[,-c(2:6)] # remove empty columns
+mom_mean <- left_join(agg_mom_mean,d, by="Mom") # add Range info to dataframe joining by pop
+
+jas_proxy = left_join(tmp2, phenC, by="Mom") #individual values
+colnames(jas_proxy)[3] = "Pop"
+jas_proxy = left_join(jas_proxy, pc_meanC[,c(2,31,47)], by="Pop")
+jas_proxy1 = jas_proxy[which(jas_proxy$JASMONATE=="1"),]
+jas_proxy2 = jas_proxy[which(jas_proxy$JASMONATE=="2"),]
+
+agg_jas_mean <- aggregate(jas_proxy, by= list(jas_proxy$JASMONATE, jas_proxy$Pop.x), FUN=mean, na.rm=T)
+colnames(agg_jas_mean)[1:2] <- c("JASMONATE", "Pop")
+agg_jas_mean <- agg_jas_mean[,-c(3:6,22:25)] # remove empty columns
+phenol_proxy = left_join(agg_jas_mean, pc_meanC[,c(2,47:69)], by="Pop") #population mean values
+
+phenol_proxy1 = phenol_proxy[which(phenol_proxy$JASMONATE=="1"),]
+phenol_proxy2 = phenol_proxy[which(phenol_proxy$JASMONATE=="2"),]
+
+```
+
+```{r}
+mgsub <- function(pattern, replacement, x, ...) {
+  if (length(pattern)!=length(replacement)) {
+    stop("pattern and replacement do not have the same length.")
+  }
+  result <- x
+  for (i in 1:length(pattern)) {
+    result <- gsub(pattern[i], replacement[i], result, ...)
+  }
+  result
+}
+phenol$Range2<- mgsub(c("Australia","Europe","Native"), c("AU","EU","NA"), phenol$Range)
+phenol$RangeJas <- interaction(phenol$Range2, phenol$JASMONATE)
+contr <- contrastCoefficients(RangeJas ~ AU.1-EU.1,  
+                                     RangeJas ~ AU.1-NA.1,  
+                                     RangeJas ~ NA.1-EU.1, 
+                                     RangeJas ~ AU.2-EU.2,  
+                                     RangeJas ~ AU.2-NA.2,  
+                                     RangeJas ~ NA.2-EU.2, 
+                                     RangeJas ~ NA.1- NA.2,
+                                     RangeJas ~ EU.1- EU.2,
+                                     RangeJas ~ AU.1- AU.2,
+                                     data=phenol)
+colnames(contr$RangeJas) <- c("1.AU.vs.EU", "1.AU.vs.NA", "1.NA.vs.EU", "2.AU.vs.EU", "2.AU.vs.NA", "2.NA.vs.EU", "NA.1.vs.2", "EU.1.vs.2","AU.1.vs.2")
+```
+
+
+*Test the constitutive phenolics differences between Ranges in MANOVA*
+---
+
+```{r}
+pc_meantrC = pc_meanC
+hist(sqrt(pc_meanC$A15.7))
+hist(log(pc_meanC$A17.4))
+hist(log(pc_meanC$A17.8))
+hist(sqrt(pc_meanC$A18.3))
+hist(sqrt(pc_meanC$A18.6))
+hist(sqrt(pc_meanC$A18.8))
+hist(sqrt(pc_meanC$A21.5))
+hist(sqrt(pc_meanC$A21.9))
+
+pc_meantrC[,c(35,38:42)] = sqrt(pc_meanC[,c(35,38:42)])
+pc_meantrC[,c(36:37)] = log(pc_meanC[,c(36:37)])
+pc_meantrC_sub <- pc_meantrC[,c(35:42)]
+corrs <- rcorr(as.matrix(pc_meantrC_sub), type="spearman")
+corrs_r <- data.frame(corrs$r) # all rho < 0.7
+
+man.phen <- manova(cbind(A15.7, A17.4, A17.8, A18.3,A18.6, A18.8,A21.5, A21.9) ~ Range*E_Latitudeabs+I(E_Latitudeabs^2), data=pc_meantrC)
+summary(man.phen, test="Wilks")
+man.phen2 <- manova(cbind(A15.7, A17.4, A17.8, A18.3,A18.6, A18.8,A21.5, A21.9) ~ Range+E_Latitudeabs+I(E_Latitudeabs^2), data=pc_meantrC)
+summary(man.phen2, test="Wilks")
+MuMIn::r.squaredGLMM(man.phen2)
+
+anova(man.phen, man.phen2)
+
+testInteractions(man.phen2, test="Wilks")
+summary.aov(man.phen2)
+
+heplots::etasq(man.phen2)
+
+
+```
+
+
+*Test the inducible phenolics differences between Ranges in MANOVA*
+---
+
+```{r}
+phenoltr = phenol
+hist(phenol$PEAK2)
+hist(sqrt(phenol$PEAK3))
+hist(sqrt(phenol$PEAK4))
+hist(sqrt(phenol$PEAK5))
+hist(phenol$PEAK6)
+hist(sqrt(phenol$PEAK7))
+hist(phenol$PEAK10)
+hist(sqrt(phenol$PEAK11))
+
+phenoltr[,c(9:11,13,15)] = sqrt(phenol[,c(9:11,13,15)]) 
+phenoltr_sub <- phenoltr[,c(8:15)]
+corrs <- rcorr(as.matrix(phenoltr_sub), type="spearman")
+corrs_r <- data.frame(corrs$r) 
+phenoltr_sub <- phenoltr[,c(9:12,14)]
+corrs <- rcorr(as.matrix(phenoltr_sub), type="spearman")
+corrs_r <- data.frame(corrs$r) rho<0.75
+
+man.phen <- manova(cbind(PEAK3, PEAK4, PEAK5, PEAK6,PEAK10) ~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2), data=phenoltr)
+man.phen <- manova(cbind(PEAK3, PEAK4, PEAK5, PEAK6,PEAK10) ~ JASMONATE*Range+JASMONATE*E_Latitudeabs+ Range*E_Latitudeabs +I(E_Latitudeabs^2), data=phenoltr)
+man.phen <- manova(cbind(PEAK3, PEAK4, PEAK5, PEAK6,PEAK10) ~ JASMONATE*E_Latitudeabs+ Range*E_Latitudeabs +I(E_Latitudeabs^2), data=phenoltr)
+
+man.phen <- manova(cbind(PEAK3, PEAK4, PEAK5, PEAK6,PEAK10) ~ JASMONATE+ Range*E_Latitudeabs +I(E_Latitudeabs^2), data=phenoltr)
+interactionMeans(man.phen, factor="JASMONATE")
+summary(man.phen, test="Wilks")
+summary.aov(man.phen)
+```
+
+*Univariate constitutive responses to range and latitude*
+---
+
+```{r}
+#Peak number
+hist(pc_mean$Peaks)
+step(lmer((Peaks)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer((Peaks) ~  E_Latitudeabs + Range + (1 | q), data = pc_mean))
+v =visreg(m, by="Range", xvar="E_Latitudeabs", overlay=T)
+
+#Anova(m)
+#summary(m, ddf="Kenward-Roger")
+anova(m, type=3, ddf="Kenward-Roger")
+ls_means(m)
+#show_tests(ls_means(m))
+MuMIn::r.squaredGLMM(m)#calculates marginal (m, fixed effects) and conditional (c, full model) coefficients of determination
+
+testInteractions(m, pairwise="Range")
+interactionMeans(m, slope="E_Latitudeabs")
+
+s = interactionMeans(m)
+
+#r= exp(s$`adjusted mean`)
+#(r[1]-r[3])
+#(r[2]-r[3])
+
+#PeakArea
+hist(sqrt(pc_mean$PeakArea))
+
+anova(lmer(sqrt(PeakArea)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PeakArea)~ Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PeakArea)~ Range+E_Latitudeabs+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PeakArea)~ Range+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(sqrt(PeakArea) ~  Range + (1 | q), data = pc_mean))
+visreg(m, overlay=T)
+
+testInteractions(m)
+s= interactionMeans(m)
+(s$`SE of link`)/10000000*((s$`adjusted mean`)^2)/10000000#
+
+
+r = (s$`adjusted mean`)^2
+(r[1]-(r[2]+r[3])/2)/((r[2]+r[3])/2)
+
+MuMIn::r.squaredGLMM(m)
+
+#Trichome
+hist(log(pc_mean$Trichome))
+
+anova(lmer(log(Trichome)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ E_Latitudeabs+ (1|q) , data = pc_mean), type =3, ddf="Kenward-Roger")
+
+m = lmer(log(Trichome)~ Range+ (1|q) , data = pc_mean)
+testInteractions(m)
+s= interactionMeans(m)
+(s$`SE of link`)*exp(s$`adjusted mean`)
+
+exp(s$`adjusted mean`)
+
+#calculate se back from log transform:
+MuMIn::r.squaredGLMM(m)
+
+
+#A15.7
+hist(sqrt(pc_mean$A15.7))
+
+step(lmer(sqrt(A15.7)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(sqrt(A15.7) ~  Range + (1 | q), data = pc_mean))
+visreg(m, overlay=T)
+testInteractions(m)
+
+s= interactionMeans(m)
+r = (s$`adjusted mean`)^2
+(r[1]-(r[2]+r[3])/2)/((r[2]+r[3])/2)
+
+
+#A17.4
+hist(log(pc_mean$A17.4))
+
+anova(lmer(log(A17.4)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A17.4)~ Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A17.4)~ E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(log(A17.4) ~  E_Latitudeabs + I(E_Latitudeabs^2)  + (1 | q), data = pc_mean))
+visreg(m, overlay=T)
+
+#A17.8
+hist(log(pc_mean$A17.8))
+step(lmer(log(A17.8)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(log(A17.8) ~  Range + E_Latitudeabs+I(E_Latitudeabs^2)+(1 | q), data = pc_mean))
+visreg(m, overlay=T)
+testInteractions(m)
+s= interactionMeans(m)
+r = exp(s$`adjusted mean`)
+(r[1]-r[2])/r[2]
+
+#A18.3
+hist(sqrt(pc_mean$A18.3))
+
+anova(lmer(sqrt(A18.3)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean),type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.3)~ Range+E_Latitudeabs+ (1|q) , data = pc_mean),type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.3)~ Range+ (1|q) , data = pc_mean),type =3, ddf="Kenward-Roger")
+
+#A18.6
+hist(sqrt(pc_mean$A18.6))
+
+step(lmer(sqrt(A18.6)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(sqrt(A18.6) ~ Range+ E_Latitudeabs+I(E_Latitudeabs^2) + (1 | q), data = pc_mean))
+visreg(m, by="Range", xvar="E_Latitudeabs",overlay=T)
+testInteractions(m)
+s= interactionMeans(m)
+r = (s$`adjusted mean`)^2
+
+#A18.8
+hist(sqrt(pc_mean$A18.8))
+
+step(lmer(sqrt(A18.8)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(sqrt(A18.8) ~  Range + (1 | q), data = pc_mean))
+visreg(m, overlay=T)
+testInteractions(m)
+s= interactionMeans(m)
+r = (s$`adjusted mean`)^2
+(r[1]-(r[2]+r[3])/2)/((r[2]+r[3])/2)
+
+#A21.5
+hist(sqrt(pc_mean$A21.5))
+
+step(lmer(sqrt(A21.5)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(sqrt(A21.5) ~  Range +E_Latitudeabs+ (1 | q), data = pc_mean))
+visreg(m, by="Range", xvar="E_Latitudeabs",overlay=T)
+testInteractions(m)
+s = interactionMeans(m)
+r= (s$`adjusted mean`)^2
+(r[1]-(r[2]+r[3])/2)/((r[2]+r[3])/2)
+
+
+#A21.9
+hist(sqrt(pc_mean$A21.9))
+
+anova(lmer(sqrt(A21.9)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A21.9)~ Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A21.9)~ Range+E_Latitudeabs+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m=lmer(sqrt(A21.9)~ Range+E_Latitudeabs+ (1|q) , data = pc_mean)
+testInteractions(m)
+visreg(m)
+s = interactionMeans(m)
+r= (s$`adjusted mean`)^2
+
+#A23.8
+hist(sqrt(pc_mean$A23.8))
+
+anova(lmer(sqrt(A23.8)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A23.8)~ Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A23.8)~ E_Latitudeabs+Range+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A23.8)~ Range+ (1|q) , data = pc_mean), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+```
+
+
+
+*Univariate inducible responses to treatment, range and latitude*
+---
+
+```{r}
+phenol1 = phenol[which(phenol$JASMONATE=="1"),]
+phenol2 = phenol[which(phenol$JASMONATE=="2"),]
+
+#TOTAL_PEAKS
+hist((phenol$TOTAL_PEAKS))
+step(lmer((TOTAL_PEAKS)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+step(lmer((TOTAL_PEAKS)~ JASMONATE*Range+JASMONATE*E_Latitudeabs+ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer (TOTAL_PEAKS ~ JASMONATE + Range + E_Latitudeabs +   I(E_Latitudeabs^2) + (1 | q), data = phenol)
+visreg(m, "Range", by="JASMONATE", overlay=T)
+
+testInteractions(m, pairwise="Range")
+
+MuMIn::r.squaredGLMM(m)#calculates marginal (m, fixed effects) and conditional (c, full model) coefficients of determination
+
+testInteractions(m, pairwise="Range")
+interactionMeans(m, slope="E_Latitudeabs")
+
+s = interactionMeans(m)
+
+hist(phenol2$TOTAL_PEAKS)
+with(phenol2,  mslr_test(nr = 1e4,TOTAL_PEAKS, Range))
+
+#TOTAL 
+hist(sqrt(phenol$TOTAL))
+anova(lmer(sqrt(TOTAL)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(sqrt(TOTAL)~ JASMONATE*Range+JASMONATE*E_Latitudeabs+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((TOTAL)~ Range*E_Latitudeabs+JASMONATE*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((TOTAL)~ Range*E_Latitudeabs+JASMONATE+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((TOTAL)~ Range+E_Latitudeabs+JASMONATE+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((TOTAL)~ Range+E_Latitudeabs+JASMONATE+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m=lmer((TOTAL)~ JASMONATE+Range+E_Latitudeabs+ (1|q), data = phenol)
+testInteractions(m, pairwise = "JASMONATE")
+testInteractions(m, pairwise = "Range")
+MuMIn::r.squaredGLMM(m)#calculates marginal (m, fixed effects) and conditional (c, full model) coefficients of determination
+s = interactionMeans(m)
+
+
+#PEAK2
+hist(sqrt(phenol$PEAK2))
+anova(lmer(sqrt(PEAK2)~ JASMONATE*Range+JASMONATE*E_Latitudeabs+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK2)~ JASMONATE*E_Latitudeabs+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK2)~ JASMONATE+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK2)~ JASMONATE+Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK2)~ JASMONATE+Range+E_Latitudeabs+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+
+#PEAK3
+hist(sqrt(phenol$PEAK3))
+anova(lmer(sqrt(PEAK3)~ JASMONATE*Range+JASMONATE*E_Latitudeabs+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK3)~ JASMONATE*E_Latitudeabs+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK3)~ JASMONATE*E_Latitudeabs+Range+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK3)~ JASMONATE+E_Latitudeabs+Range+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK3)~ JASMONATE+E_Latitudeabs+Range+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK3)~ JASMONATE+E_Latitudeabs+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK3) ~ JASMONATE +E_Latitudeabs+ (1 | q), data = phenol)
+
+#PEAK4
+hist(sqrt(phenol$PEAK4))
+step(lmer(sqrt(PEAK4)~ JASMONATE*Range+JASMONATE*E_Latitudeabs+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK4) ~JASMONATE + E_Latitudeabs +I(E_Latitudeabs^2) + (1 | q), data = phenol )
+
+#PEAK5
+hist(sqrt(phenol$PEAK5))
+step(lmer(sqrt(PEAK5)~ JASMONATE*Range+JASMONATE*E_Latitudeabs+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK5) ~JASMONATE + Range + (1 | q), data = phenol )
+
+#PEAK6
+hist((phenol$PEAK6))
+anova(lmer((PEAK6)~  JASMONATE*Range+JASMONATE*E_Latitudeabs+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((PEAK6)~  JASMONATE*E_Latitudeabs+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((PEAK6)~  JASMONATE+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((PEAK6)~  JASMONATE+Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((PEAK6)~  JASMONATE+Range+E_Latitudeabs+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((PEAK6)~  JASMONATE+Range+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((PEAK6)~  JASMONATE+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer((PEAK6) ~JASMONATE + (1 | q), data = phenol )
+
+
+#PEAK7
+hist(sqrt(phenol$PEAK7))
+step(lmer(sqrt(PEAK7)~ JASMONATE*Range+ JASMONATE*E_Latitudeabs+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK7) ~JASMONATE + Range + E_Latitudeabs + I(E_Latitudeabs^2)+ (1 | q), data = phenol )
+
+#PEAK10
+hist(sqrt(phenol$PEAK10))
+anova(lmer(sqrt(PEAK10)~ JASMONATE*Range+ JASMONATE*E_Latitudeabs+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE*Range+ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE+ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE+ Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE+ Range+E_Latitudeabs+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m=lmer(sqrt(PEAK10)~ JASMONATE+ Range+E_Latitudeabs+ (1|q), data = phenol)
+
+#PEAK11
+hist(sqrt(phenol$PEAK11))
+step(lmer(sqrt(PEAK11)~ JASMONATE*Range+JASMONATE*E_Latitudeabs+ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK11) ~JASMONATE+Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1 | q), data = phenol )
+
+```
+
+
+
+
+
+*Trade-offs inds*
+---
+```{r}
+phenC$PeakArea_sq = sqrt(phenC$PeakArea)
+phenC$T_shoot_biom_sq = sqrt(phenC$T_shoot_biom)
+phenC$Trichome_sq = sqrt(phenC$Trichome)
+phenC$T_Sla_lg= log(phenC$T_Sla)
+
+step(lmer(Peaks~(T_shoot_biom_sq)*Range+ (1|Pop) + (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(Peaks~Range+sqrt(T_shoot_biom)+ (1|Pop)+(1|q), data=phenC)
+visreg(m, "Range",xvar="T_shoot_biom", overlay=T)
+visreg(m, "Range", overlay=T)
+testInteractions(m, pairwise="Range")
+MuMIn::r.squaredGLMM(m)
+interactionMeans(m)
+s=interactionMeans(m, factor="Range",slope="sqrt(T_shoot_biom)")
+(s$`sqrt(T_shoot_biom)`)^2
+s$`std. error`*(s$`sqrt(T_shoot_biom)`)^2
+
+anova(lmer(PeakArea_sq~T_shoot_biom_sq*Range+ (1|Pop) + (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(PeakArea_sq~T_shoot_biom_sq+Range+ (1|Pop) + (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(sqrt(PeakArea)~Range+sqrt(T_shoot_biom)+ (1|Pop)+(1|q), data=phenC)
+visreg(m, "Range",xvar="T_shoot_biom", overlay=T)
+visreg(m, "Range", overlay=T)
+testInteractions(m, pairwise="Range")
+interactionMeans(m, factor="Range")
+MuMIn::r.squaredGLMM(m)
+r=interactionMeans(m)
+r^2/10000000
+(r$`SE of link`)/10000000*((r$`adjusted mean`)^2)/100000003#
+#s=interactionMeans(m, factor="Range",slope="sqrt(T_shoot_biom)")
+#s$`sqrt(T_shoot_biom)`^2*s$`std. error`
+
+step(lmer(Trichome_sq~(T_shoot_biom_sq)*Range+ (1|Pop) + (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(sqrt(Trichome)~Range+sqrt(T_shoot_biom)+ (1|Pop)+(1|q), data=phenC)
+visreg(m, "Range",xvar="T_shoot_biom", overlay=T)
+visreg(m, "Range", overlay=T)
+testInteractions(m, pairwise="Range")
+MuMIn::r.squaredGLMM(m)
+r=interactionMeans(m)
+r^2
+r$`adjusted mean`^2*r$`SE of link`
+
+s=interactionMeans(m, factor="Range",slope="sqrt(T_shoot_biom)")
+s^2
+
+#####
+
+step(lmer(Peaks~T_Sla_lg*Range+ (1|Pop) + (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(Peaks~Range+log(T_Sla)+ (1|Pop)+(1|q), data=phenC)
+visreg(m, "Range",xvar="T_Sla", overlay=T)
+visreg(m, "Range", overlay=T)
+testInteractions(m, pairwise="Range")
+MuMIn::r.squaredGLMM(m)
+interactionMeans(m)
+
+s=interactionMeans(m, factor="Range",slope="log(T_Sla)")
+exp(s$`log(T_Sla)`)
+(s$`std. error`)
+
+anova(lmer(PeakArea_sq~T_Sla_lg*Range+ (1|Pop) + (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(PeakArea_sq~T_Sla_lg+Range+ (1|Pop) + (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(sqrt(PeakArea)~Range+log(T_Sla)+ (1|Pop)+(1|q), data=phenC)
+visreg(m, "Range",xvar="T_Sla", overlay=T)
+visreg(m, "Range", overlay=T)
+testInteractions(m, pairwise="Range")
+MuMIn::r.squaredGLMM(m)
+r=interactionMeans(m)
+r^2/10000000
+(r$`SE of link`)/10000000*((r$`adjusted mean`)^2)/10000000
+
+s=interactionMeans(m, factor="Range",slope="log(T_Sla)")
+s^2
+
+step(lmer(Trichome_sq~(T_Sla_lg)*Range+ (1|Pop) + (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(sqrt(Trichome)~Range+log(T_Sla)+ (1|Pop)+(1|q), data=phenC)
+visreg(m, "T_Sla", overlay=T)
+testInteractions(m, pairwise="Range")
+MuMIn::r.squaredGLMM(m)
+r=interactionMeans(m)
+r^2
+(r$`SE of link`)*((r$`adjusted mean`)^2)
+s=interactionMeans(m, factor="Range",slope="log(T_Sla)")
+s^2
+
+
+
+###
+step(lmer(Peaks~(T_shoot_biom_sq)*Range+ T_Sla_lg*Range+ (1|Pop) + (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(Peaks~Range+sqrt(T_shoot_biom) +log(T_Sla)+ (1|Pop)+(1|q), data=phenC)
+visreg(m, "Range",xvar="T_shoot_biom", overlay=T)
+visreg(m, "Range",xvar="T_Sla", overlay=T)
+visreg(m, "Range", overlay=T)
+testInteractions(m, pairwise="Range")
+
+anova(lmer(PeakArea_sq~(T_shoot_biom_sq)*Range+ T_Sla_lg*Range+ (1|Pop) + (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(PeakArea_sq~(T_shoot_biom_sq)+Range+ T_Sla_lg*Range+ (1|Pop) + (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(PeakArea_sq~(T_shoot_biom_sq)+Range+ T_Sla_lg+ (1|Pop) + (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m = lmer(sqrt(PeakArea)~Range+sqrt(T_shoot_biom) +log(T_Sla)+ (1|Pop)+(1|q), data=phenC)
+visreg(m, "Range",xvar="T_shoot_biom", overlay=T)
+visreg(m, "Range",xvar="T_Sla", overlay=T)
+visreg(m, "Range", overlay=T)
+testInteractions(m, pairwise="Range")
+
+step(lmer(Trichome_sq~(T_shoot_biom_sq)*Range+ T_Sla_lg*Range+ (1|Pop) + (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(sqrt(Trichome)~Range+sqrt(T_shoot_biom) + (1|Pop)+(1|q), data=phenC)
+visreg(m, "Range",xvar="T_shoot_biom", overlay=T)
+visreg(m, "Range", overlay=T)
+testInteractions(m, pairwise="Range")
+```
+
+
+
+
+Con vs Con-Ind
+---
+```{r}
+ci = jas_proxy[ ,which(names(jas_proxy) %in% c("TOTAL_PEAKS","Range","Mom","Pop","JASMONATE","q.x"))]
+ci = ci[-c(283,285),]
+ci2 = ci %>% spread(JASMONATE, TOTAL_PEAKS)
+ci3 = ci2[complete.cases(ci2), ]
+colnames(ci3) = c("Mom"  , "Pop"  , "Range","q", "C"  ,   "J"  )
+ci3$ci = ci3$J - ci3$C
+
+hist(ci3$ci)
+hist(sqrt(ci3$ci+30))
+hist(sqrt(ci3$C))
+ci3$C_s = sqrt(ci3$C)
+
+m = lmer(sqrt(ci3$ci+30)~ C_s * Range + (1|Pop)+ (1|q), data = ci3)
+anova(model, ddf="kenw", type=3)
+m = lmer(ci~ C_s + Range + (1|Pop)+ (1|q), data = ci3)
+anova(m, ddf="kenw",type=3)
+m = lmer(ci~  C_s  + (1|Pop)+ (1|q), data = ci3)
+anova(m, ddf="kenw",type=3)
+
+visreg(m, by="Range", xvar="C_s", overlay=T)
+
+###
+
+ci = jas_proxy[ ,which(names(jas_proxy) %in% c("TOTAL","Range","Mom","Pop","JASMONATE","q.x"))]
+ci = ci[-c(283,285),]
+ci2 = ci %>% spread(JASMONATE, TOTAL)
+ci3 = ci2[complete.cases(ci2), ]
+colnames(ci3) = c("Mom"  , "Pop"  , "Range","q", "C"  ,   "J"  )
+ci3$ci = ci3$J - ci3$C
+
+hist(sqrt(ci3$ci+100000))
+hist(ci3$C)
+ci3$C_s = sqrt(ci3$C)
+
+m = lmer(sqrt(ci3$ci+100000)~ sqrt(C) * Range + (1|Pop)+ (1|q), data = ci3)
+anova(model, ddf="kenw", type=3)
+m = lmer(sqrt(ci3$ci+100000)~ sqrt(C) + Range + (1|Pop)+ (1|q), data = ci3)
+anova(m, ddf="kenw",type=3)
+m = lmer(sqrt(ci3$ci+100000)~ sqrt(C)  + (1|Pop)+ (1|q), data = ci3)
+anova(m, ddf="kenw",type=3)
+
+visreg(m, by="Range", xvar="C", overlay=T)
+
+
+###
+
+
+```
+
+===
+
+*test equality of variance*
+---
+```{r}
+library(cvequality)
+
+ci = jas_proxy[ ,which(names(jas_proxy) %in% c("TOTAL_PEAKS","Range","Mom","Pop","JASMONATE","q.x"))]
+ci = ci[-c(283,285),]
+ci2 =  ci[which(ci$JASMONATE=="1"),]
+ci3 = ci2[complete.cases(ci2), ]
+
+hist(ci3$TOTAL_PEAKS)
+
+with(ci3,  mslr_test(nr = 1e4,TOTAL_PEAKS, Range))
+boxplot(ci3$TOTAL_PEAKS~ci3$Range)
+
+ci = jas_proxy[ ,which(names(jas_proxy) %in% c("TOTAL","Range","Mom","Pop","JASMONATE","q.x"))]
+ci = ci[-c(283,285),]
+ci2 =  ci[which(ci$JASMONATE=="1"),]
+ci3 = ci2[complete.cases(ci2), ]
+
+hist(ci3$TOTAL)
+hist(sqrt(ci3$TOTAL))
+
+with(ci3,  mslr_test(nr = 1e4,sqrt(TOTAL), Range))
+boxplot(sqrt(ci3$TOTAL)~ci3$Range)
+```
+
+**Constitutive vs Inducible**
+---
+
+```{r}
+jas1<- jas[which(jas$JASMONATE=='1'),]
+phendummyC<- jas1[ ,which(names(jas1) %in% c("TOTAL","TOTAL_PEAKS","Range","Mom","Pop"))]
+jas2<- jas[which(jas$JASMONATE=='2'),]
+phendummyD<- jas2[ ,which(names(jas2) %in% c("TOTAL","TOTAL_PEAKS","Mom"))]
+test <- inner_join(phendummyC, phendummyD, by="Mom")
+test <- unique(test)
+
+anova(lmer(sqrt(TOTAL.y)~sqrt(TOTAL.x)*Range + (1|Pop), data=test), type=3,ddf="Kenward-Roger")
+anova(lmer(sqrt(TOTAL.y)~sqrt(TOTAL.x)+Range + (1|Pop), data=test), type=3,ddf="Kenward-Roger")
+anova(lmer(sqrt(TOTAL.y)~sqrt(TOTAL.x) + (1|Pop), data=test), type=3,ddf="Kenward-Roger")
+m <- lmer(sqrt(TOTAL.y)~sqrt(TOTAL.x) + (1|Pop), data=test)
+visreg(m,xvar="TOTAL.x" , overlay=T)
+
+anova(lmer(sqrt(TOTAL_PEAKS.y)~sqrt(TOTAL_PEAKS.x)*Range + (1|Pop), data=test), type=3,ddf="Kenward-Roger")
+anova(lmer(sqrt(TOTAL_PEAKS.y)~sqrt(TOTAL_PEAKS.x)+Range + (1|Pop), data=test), type=3,ddf="Kenward-Roger")
+anova(lmer(sqrt(TOTAL_PEAKS.y)~sqrt(TOTAL_PEAKS.x) + (1|Pop), data=test), type=3,ddf="Kenward-Roger")
+
+```
+
+
+*Heterozygosity*
+---
+```{r}
+anova(lmer(Peaks~ Ho*Range+E_Latitudeabs*Range+I(E_Latitudeabs^2)  + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(Peaks~ Ho*Range+E_Latitudeabs+I(E_Latitudeabs^2)  + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(Peaks~ Ho+Range+E_Latitudeabs+I(E_Latitudeabs^2)  + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(Peaks~ Ho+Range+E_Latitudeabs  + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(Peaks~ Ho+Range  + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(Peaks~ Ho + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(sqrt(PeakArea)~ Ho*Range+E_Latitudeabs*Range+I(E_Latitudeabs^2)  + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PeakArea)~ Ho*Range+E_Latitudeabs*Range + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PeakArea)~ Ho*Range+E_Latitudeabs + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PeakArea)~ Ho+Range+E_Latitudeabs + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PeakArea)~ Ho+Range + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(Trichome)~ Ho*Range+E_Latitudeabs*Range+I(E_Latitudeabs^2)  + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ Ho+E_Latitudeabs*Range+I(E_Latitudeabs^2)  + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ Ho+E_Latitudeabs*Range  + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ Ho+E_Latitudeabs+Range  + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ Ho+Range  + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ Ho  + (1|q) , data = pcho_mean), keep.effs="Ho", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+```
+
+**Constitutive vs Inducible with latitude, pop**
+---
+
+```{r}
+phendummyC<- jas_proxy1[ ,which(names(jas_proxy1) %in% c("TOTAL","TOTAL_PEAKS","Range","Mom","Pop", "E_Latitudeabs"))]
+phendummyD<- jas_proxy2[ ,which(names(jas_proxy2) %in% c("TOTAL","TOTAL_PEAKS","Mom"))]
+test <- inner_join(phendummyC, phendummyD, by="Mom")
+test <- unique(test)
+
+anova(lmer(sqrt(TOTAL.y)~sqrt(TOTAL.x)*Range+Range*E_Latitudeabs + (1|Pop), data=test), type=3,ddf="Kenward-Roger")
+anova(lmer(sqrt(TOTAL.y)~sqrt(TOTAL.x)*Range+E_Latitudeabs + (1|Pop), data=test), type=3,ddf="Kenward-Roger")
+anova(lmer(sqrt(TOTAL.y)~sqrt(TOTAL.x)+Range+E_Latitudeabs + (1|Pop), data=test), type=3,ddf="Kenward-Roger")
+m=lmer(sqrt(TOTAL.y)~sqrt(TOTAL.x)+Range+E_Latitudeabs + (1|Pop) , data=test)
+visreg(m)
+
+tmp = inner_join(phendummyC, phendummyD, by="Mom")
+tmp$IdivC = tmp$TOTAL.y/tmp$TOTAL.x
+hist(log(tmp$IdivC))
+anova(lmer(log(IdivC)~Range*E_Latitudeabs + (1|Pop), data=tmp), type=3,ddf="Kenward-Roger")
+anova(lmer(log(IdivC)~Range+E_Latitudeabs + (1|Pop), data=tmp), type=3,ddf="Kenward-Roger")
+anova(lmer(log(IdivC)~Range + (1|Pop), data=tmp), type=3,ddf="Kenward-Roger")
+
+tmp$IdivC = tmp$TOTAL_PEAKS.y/tmp$TOTAL_PEAKS.x
+hist(log(tmp$IdivC))
+anova(lmer(log(IdivC)~Range*E_Latitudeabs + (1|Pop), data=tmp), type=3,ddf="Kenward-Roger")
+anova(lmer(log(IdivC)~Range+E_Latitudeabs + (1|Pop), data=tmp), type=3,ddf="Kenward-Roger")
+anova(lmer(log(IdivC)~E_Latitudeabs + (1|Pop), data=tmp), type=3,ddf="Kenward-Roger")
+
+plot(tmp$IdivC~tmp$Range*tmp$E_Latitudeabs)
+```
+
+
+**Constitutive vs Inducible with latitude, pop**
+---
+
+```{r}
+phendummyC<- phenol_proxy1[ ,which(names(phenol_proxy1) %in% c("TOTAL","TOTAL_PEAKS","Range","Pop","q", "E_Latitudeabs"))]
+phendummyD<- phenol_proxy2[ ,which(names(phenol_proxy2) %in% c("TOTAL","TOTAL_PEAKS","Pop"))]
+test <- inner_join(phendummyC, phendummyD, by="Pop")
+test <- unique(test)
+
+anova(lmer(sqrt(TOTAL.y)~sqrt(TOTAL.x)*Range+Range*E_Latitudeabs + (1|q), data=test), type=3,ddf="Kenward-Roger")
+anova(lmer(sqrt(TOTAL.y)~sqrt(TOTAL.x)*Range+E_Latitudeabs + (1|q), data=test), type=3,ddf="Kenward-Roger")
+anova(lmer(sqrt(TOTAL.y)~sqrt(TOTAL.x)+Range+E_Latitudeabs + (1|q), data=test), type=3,ddf="Kenward-Roger")
+anova(lmer(sqrt(TOTAL.y)~sqrt(TOTAL.x)+E_Latitudeabs + (1|q), data=test), type=3,ddf="Kenward-Roger")
+anova(lmer(sqrt(TOTAL.y)~sqrt(TOTAL.x) + (1|q), data=test), type=3,ddf="Kenward-Roger")
+m=lm(sqrt(TOTAL.y)~sqrt(TOTAL.x) , data=test)
+visreg(m)
+
+```
+
+
+
+
+**OLD**
+===
+```{r}
+man.phen <- manova(cbind(T_Peakstr, T_PeakArea_sq, T_Trichome_log,T_A17.4_lg, T_A17.8_lg, T_A18.3_lg, T_A18.6_lg, T_A18.8_lg,T_A21.5_lg, T_A21.9_lg,T_A23.8_lg) ~ Range*E_Latitudeabs+I(E_Latitudeabs^2), data=pc_meantrC)
+summary(man.phen, test="Wilks")
+man.phen <- manova(cbind(T_Peakstr, T_PeakArea_sq, T_Trichome_log,T_A17.4_lg, T_A17.8_lg, T_A18.3_lg, T_A18.6_lg, T_A18.8_lg,T_A21.5_lg, T_A21.9_lg,T_A23.8_lg) ~ Range+E_Latitudeabs+I(E_Latitudeabs^2), data=pc_meantrC)
+summary(man.phen, test="Wilks")
+man.phen <- manova(cbind(T_Peakstr, T_PeakArea_sq, T_Trichome_log,T_A17.4_lg, T_A17.8_lg, T_A18.3_lg, T_A18.6_lg, T_A18.8_lg,T_A21.5_lg, T_A21.9_lg,T_A23.8_lg) ~ Range+E_Latitudeabs, data=pc_meantrC)
+summary(man.phen, test="Wilks")
+man.phen <- manova(cbind(T_Peakstr, T_PeakArea_sq, T_Trichome_log,T_A17.4_lg, T_A17.8_lg, T_A18.3_lg, T_A18.6_lg, T_A18.8_lg,T_A21.5_lg, T_A21.9_lg,T_A23.8_lg) ~ Range, data=pc_meantrC)
+summary(man.phen, test="Wilks")
+
+man.phen <- lm(cbind() ~ Range*E_Latitudeabs+I(E_Latitudeabs^2), data=pc_meantrC)
+man.phen <- lm(cbind() ~ Range+E_Latitudeabs+I(E_Latitudeabs^2), data=pc_meantrC)
+
+test(pairs(lsmeans(man.phen, ~ Range)), adjust="Holm")
+
+testInteractions(man.phen, test="Holm")
+summary(man.phen, test="Wilks")
+summary.aov(man.phen)
+```
+
+```{r}
+plot(jas_proxy1$PEAK2~jas_proxy1$A15.7, col=jas_proxy1$Range)
+cor.test(jas_proxy1$PEAK2,jas_proxy1$A15.7)
+plot(jas_proxy2$PEAK2~jas_proxy2$A15.7$Range)
+cor.test(jas_proxy2$PEAK2,jas_proxy2$A15.7)
+
+plot(jas_proxy1$PEAK3~jas_proxy1$A17.4$Range)
+cor.test(jas_proxy1$PEAK3,jas_proxy1$A17.4)
+plot(jas_proxy2$PEAK3~jas_proxy2$A17.4$Range)
+cor.test(jas_proxy2$PEAK3,jas_proxy2$A17.4)
+
+plot(jas_proxy1$PEAK4~jas_proxy1$A17.8)
+plot(jas_proxy2$PEAK4~jas_proxy2$A17.8)
+
+plot(jas_proxy1$PEAK10~jas_proxy1$A21.5)
+plot(jas_proxy2$PEAK10~jas_proxy2$A21.5)
+
+plot(jas_proxy1$PEAK11~jas_proxy1$A21.9)
+plot(jas_proxy2$PEAK11~jas_proxy2$A21.9)
+
+cor.test(jas_proxy2$PEAK2,jas_proxy2$A15.7)
+
+cor.test(jas_proxy1$PEAK4,jas_proxy1$A17.8)
+cor.test(jas_proxy2$PEAK4,jas_proxy2$A17.8)
+
+cor.test(jas_proxy1$PEAK10,jas_proxy1$A21.5)
+cor.test(jas_proxy2$PEAK10,jas_proxy2$A21.5)
+
+cor.test(jas_proxy1$PEAK11,jas_proxy1$A21.9)
+cor.test(jas_proxy2$PEAK11,jas_proxy2$A21.9)
+
+cor.test(jas_proxy1$TOTAL_PEAKS,jas_proxy1$Peaks)
+cor.test(jas_proxy2$TOTAL_PEAKS,jas_proxy2$Peaks)
+
+cor.test(jas_proxy1$TOTAL,jas_proxy1$PeakArea)
+cor.test(jas_proxy2$TOTAL,jas_proxy2$PeakArea)
+
+plot(jas_proxy1$TOTAL~jas_proxy1$PeakArea, col=jas_proxy1$Range)
+plot(jas_proxy2$TOTAL~jas_proxy2$PeakArea, col=jas_proxy2$Range)
+
+```
+
+Can I use SLA and latitude in the same model?
+---
+```{r}
+Z<-na.omit(cbind(pc_meanC$E_Latitudeabs,pc_meanC$T_Sla, pc_meanC$T_shoot_biom))
+pairs(Z)
+Z<-as.data.frame(Z) # turn into dataframe as vif function is not able to deal with previous format
+usdm::vif(Z)
+
+Z<-na.omit(cbind(phenol_proxy$E_Latitudeabs,phenol_proxy$T_Sla))
+pairs(Z)
+Z<-as.data.frame(Z) # turn into dataframe as vif function is not able to deal with previous format
+usdm::vif(Z)
+```
+
+*Explore peaks*
+---
+```{r}
+tst = melt(phenC[,c(4,39:47)])
+boxplot(tst$value/1000000~tst$variable*tst$Range, col=as.factor(tst$Range))
+library(ggplot2)
+
+ggplot(tst, aes(variable, value/1000, fill = Range)) +
+  stat_summary(geom = "bar", fun.y = mean, position = "dodge") +
+  stat_summary(geom = "errorbar", fun.data = mean_se, position = "dodge")+
+  scale_y_continuous(breaks=seq(0,100000,10000))
+
+tst2 =  melt(pc_meanC[,c(36:44,47)])
+boxplot(tst2$value~tst2$variable)
+
+
+tst = melt(phenol_proxy[,c(62,6:16)])
+
+ggplot(tst, aes(variable, value, fill = Range)) +
+  stat_summary(geom = "bar", fun.y = mean, position = "dodge") +
+  stat_summary(geom = "errorbar", fun.data = mean_se, position = "dodge")
+
+```
+
+*make herbivory files, not used*
+---
+```{r}
+hAU = select(herbAU, Pop, herbyn)
+hEU = select(herbEU, Pop, herbyn)
+hSM = select(herbSMART, Pop, herbyn, ophraella)
+jasherAU = inner_join(hAU, phenol, by="Pop")
+jasherEU = inner_join(hEU, phenol, by="Pop")
+jasherSM = inner_join(hSM, phenol, by="Pop")
+```
+
+```{r}
+mgsub <- function(pattern, replacement, x, ...) {
+  if (length(pattern)!=length(replacement)) {
+    stop("pattern and replacement do not have the same length.")
+  }
+  result <- x
+  for (i in 1:length(pattern)) {
+    result <- gsub(pattern[i], replacement[i], result, ...)
+  }
+  result
+}
+phenol$Range2<- mgsub(c("Australia","Europe","Native"), c("AU","EU","NA"), phenol$Range)
+phenol$RangeJas <- interaction(phenol$Range2, phenol$JASMONATE)
+contr <- contrastCoefficients(RangeJas ~ AU.1-EU.1,  
+                                     RangeJas ~ AU.1-NA.1,  
+                                     RangeJas ~ NA.1-EU.1, 
+                                     RangeJas ~ AU.2-EU.2,  
+                                     RangeJas ~ AU.2-NA.2,  
+                                     RangeJas ~ NA.2-EU.2, 
+                                     RangeJas ~ NA.1 - NA.2,
+                                     RangeJas ~ EU.1 - EU.2,
+                                     RangeJas ~ AU.1 - AU.2,
+                                     data=phenol)
+colnames(contr$RangeJas) <- c("1.AU.vs.EU", "1.AU.vs.NA", "1.NA.vs.EU", "2.AU.vs.EU", "2.AU.vs.NA", "2.NA.vs.EU", "NA.1.vs.2", "EU.1.vs.2","AU.1.vs.2")
+```
+
+*Calculate correlations between all population mean trait values*
+---
+
+Function to transform rcorr output
+```{r}
+# function to flatten rcorr matrix
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+```
+
+
+Using Bonferroni correction to account for multiple comparisons (multiplies p-val times number of comparisons made). Use data without transformed variables as Spearman's correlation test doesn't need it
+```{r}
+#All
+phenol_sub <- phenol[9:21]
+corrs <- rcorr(as.matrix(phenol_sub), type="spearman")
+
+corrs_r <- data.frame(corrs$r)
+corrs_p <- data.frame(corrs$P)
+corrs_pbonf <- data.frame(corrs$p_bonf)
+corr <- flattenCorrMatrix(corrs_r,corrs_p)
+corr$p_bonf <- p.adjust(corr$p, method= "bonferroni")
+write.table(corr, "correlations_phenolJas.txt")  
+```  
+
+Take out rho>0.8: 
+
+For phenolics:
+A15.7
+
+Take out rho>0.7: 
+
+For phenolics:
+A21.5
+
+
+*Univariate responses/biom to range and latitude*
+---
+
+```{r}
+#Peak number
+hist(pc_trans$Peaks)
+hist(log(pc_trans$Peaks))
+
+step(lmer(log(Peaks)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m<-(lmer(log(Peaks) ~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans))
+visreg(m, by="Range", xvar="E_Latitudeabs", overlay=T)
+
+testInteractions(m, pairwise="Range", slope="E_Latitudeabs")
+testInteractions(m, pairwise="Range")
+
+#PeakArea
+hist(log(pc_trans$PeakArea))
+step(lmer(log(PeakArea)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(log(PeakArea) ~  Range * E_Latitudeabs + I(E_Latitudeabs^2) + (1 | q), data = pc_trans))
+visreg(m,by ="Range", xvar="E_Latitudeabs", overlay=T)
+testInteractions(m, pairwise="Range", slope="E_Latitudeabs")
+testInteractions(m, pairwise="Range")
+
+interactionMeans(m, factor="Range", slope = "E_Latitudeabs")
+
+
+#Trichome
+hist(log(pc_trans$Trichome))
+
+anova(lmer(log(Trichome)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ Range+E_Latitudeabs+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(log(Trichome) ~  Range+E_Latitudeabs +(1 | q), data = pc_trans))
+visreg(m,by ="Range", xvar="E_Latitudeabs", overlay=T)
+testInteractions(m, pairwise="Range")
+
+#A15.7
+hist(sqrt(pc_trans$A15.7))
+
+anova(lmer(sqrt(A15.7)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A15.7)~ Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A15.7)~ E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m<-(lmer(sqrt(A15.7) ~  E_Latitudeabs+I(E_Latitudeabs^2) + (1 | q), data = pc_trans))
+visreg(m, overlay=T)
+
+#A17.4
+hist(log(pc_trans$A17.4))
+
+anova(lmer(log(A17.4)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A17.4)~ Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A17.4)~ E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(log(A17.4) ~  E_Latitudeabs + I(E_Latitudeabs^2)  + (1 | q), data = pc_trans))
+visreg(m, overlay=T)
+
+#A17.8
+hist(log(pc_trans$A17.8))
+step(lmer(log(A17.8)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(log(A17.8) ~  Range+(1 | q), data = pc_trans))
+visreg(m, overlay=T)
+testInteractions(m, pairwise="Range")
+
+
+#A18.3
+hist(log(pc_trans$A18.3))
+anova(lmer(log(A18.3+1)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A18.3+1)~ Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A18.3+1)~ E_Latitudeabs+Range+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A18.3+1)~ E_Latitudeabs+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+#A18.6
+hist(sqrt(pc_trans$A18.6))
+
+step(lmer(sqrt(A18.6)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(sqrt(A18.6) ~ Range* E_Latitudeabs + (1 | q), data = pc_trans))
+visreg(m, by="Range", xvar="E_Latitudeabs",overlay=T)
+testInteractions(m, pairwise="Range", slope="E_Latitudeabs")
+
+
+#A18.8
+hist(log(pc_trans$A18.8))
+
+step(lmer(log(A18.8+1)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m<-(lmer(log(A18.8+1) ~  Range + (1 | q), data = pc_trans))
+visreg(m, overlay=T)
+testInteractions(m, pairwise="Range")
+
+#A21.5
+hist(log(pc_trans$A21.5))
+
+step(lmer(log(A21.5)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(log(A21.5) ~  Range +(1 | q), data = pc_trans))
+visreg(m, overlay=T)
+testInteractions(m, pairwise="Range")
+
+
+#A21.9
+hist(sqrt(pc_trans$A21.9))
+
+anova(lmer(sqrt(A21.9)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A21.9)~ Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A21.9)~ Range+E_Latitudeabs+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A21.9)~ E_Latitudeabs+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m=lmer(sqrt(A21.9)~ E_Latitudeabs+ (1|q) , data = pc_trans)
+visreg(m)
+
+#A23.8
+hist(log(pc_trans$A23.8))
+
+anova(lmer(log(A23.8+1)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A23.8+1)~ Range+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A23.8+1)~ E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A23.8+1)~ E_Latitudeabs+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m=lmer(log(A23.8+1)~ E_Latitudeabs+ (1|q) , data = pc_trans)
+visreg(m)
+
+
+
+```
+
+
+
+
+*Univariate responses/biom to range, latitude and sla*
+---
+
+```{r}
+#Peak number
+hist(pc_trans$Peaks)
+hist(log(pc_trans$Peaks))
+
+step(lmer(log(Peaks)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ Range*T_Sla+ (1|q) , data = pc_meanC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m<-(lmer(log(Peaks) ~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+T_Sla+ (1|q) , data = pc_meanC))
+visreg(m, by="Range", xvar="E_Latitudeabs", overlay=T)
+visreg(m, by="Range", xvar="T_Sla", overlay=T)
+
+testInteractions(m, pairwise="Range", slope="E_Latitudeabs")
+
+
+#PeakArea
+hist(log(pc_trans$PeakArea))
+anova(lmer(log(PeakArea)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ Range*T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ E_Latitudeabs+I(E_Latitudeabs^2)+ Range*T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ E_Latitudeabs+I(E_Latitudeabs^2)+ Range+T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ E_Latitudeabs+ Range+T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(log(PeakArea) ~  Range+ E_Latitudeabs + T_Sla+ (1 | q), data = pc_trans))
+visreg(m,by ="Range", xvar="E_Latitudeabs", overlay=T)
+visreg(m, by="Range", xvar="T_Sla", overlay=T)
+
+testInteractions(m, pairwise="Range")
+interactionMeans(m, factor="Range")
+
+#Trichome
+hist(log(pc_trans$Trichome))
+
+anova(lmer(log(Trichome)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ E_Latitudeabs+I(E_Latitudeabs^2)+Range*T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ E_Latitudeabs+I(E_Latitudeabs^2)+Range+T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ E_Latitudeabs+Range+T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ E_Latitudeabs+T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(log(Trichome) ~  T_Sla+E_Latitudeabs +(1 | q), data = pc_trans))
+visreg(m, overlay=T)
+
+#A15.7
+hist(sqrt(pc_trans$A15.7))
+
+anova(lmer(sqrt(A15.7)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ Range*T_Sla+(1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A15.7)~ Range*T_Sla+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A15.7)~ Range+T_Sla+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A15.7)~ Range+T_Sla+E_Latitudeabs+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A15.7)~ T_Sla+E_Latitudeabs+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(sqrt(A15.7) ~  E_Latitudeabs+T_Sla + (1 | q), data = pc_trans))
+visreg(m, overlay=T)
+
+#A17.4
+hist(log(pc_trans$A17.4))
+
+anova(lmer(log(A17.4)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ Range*T_Sla+(1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A17.4)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+ T_Sla+(1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A17.4)~ Range+E_Latitudeabs+I(E_Latitudeabs^2)+ T_Sla+(1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A17.4)~E_Latitudeabs+I(E_Latitudeabs^2)+ T_Sla+(1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(log(A17.4) ~  E_Latitudeabs + I(E_Latitudeabs^2) + T_Sla + (1 | q), data = pc_trans))
+visreg(m, overlay=T)
+
+#A17.8
+hist(log(pc_trans$A17.8))
+step(lmer(log(A17.8)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(log(A17.8) ~  Range*T_Sla+(1 | q), data = pc_trans))
+visreg(m, by="Range", xvar="T_Sla",overlay=T)
+testInteractions(m, pairwise="Range", slope="T_Sla")
+
+
+#A18.3
+hist(log(pc_trans$A18.3))
+anova(lmer(log(A18.3+1)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A18.3+1)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A18.3+1)~ Range+E_Latitudeabs+I(E_Latitudeabs^2)+T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A18.3+1)~ Range+E_Latitudeabs+T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A18.3+1)~ Range+E_Latitudeabs+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A18.3+1)~ E_Latitudeabs+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+#A18.6
+hist(sqrt(pc_trans$A18.6))
+
+step(lmer(sqrt(A18.6)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(sqrt(A18.6) ~ Range* E_Latitudeabs + (1 | q), data = pc_trans))
+visreg(m, by="Range", xvar="E_Latitudeabs",overlay=T)
+testInteractions(m, pairwise="Range", slope="E_Latitudeabs")
+
+
+#A18.8
+hist(sqrt(pc_trans$A18.8))
+
+step(lmer(sqrt(A18.8)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m<-(lmer(sqrt(A18.8) ~  E_Latitudeabs+T_Sla + (1 | q), data = pc_trans))
+visreg(m,overlay=T)
+
+#A21.5
+hist(log(pc_trans$A21.5))
+
+step(lmer(log(A21.5)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m<-(lmer(log(A21.5) ~  Range+T_Sla  +(1 | q), data = pc_trans))
+visreg(m, by="Range", xvar="T_Sla",overlay=T)
+testInteractions(m, pairwise="Range")
+
+
+#A21.9
+hist(sqrt(pc_trans$A21.9))
+
+anova(lmer(sqrt(A21.9)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A21.9)~ E_Latitudeabs+I(E_Latitudeabs^2)+Range*T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A21.9)~ E_Latitudeabs+I(E_Latitudeabs^2)+Range+T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A21.9)~ E_Latitudeabs+Range+T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A21.9)~ E_Latitudeabs+Range+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A21.9)~ E_Latitudeabs+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m=lmer(sqrt(A21.9)~ E_Latitudeabs+ (1|q) , data = pc_trans)
+visreg(m)
+
+#A23.8
+hist(log(pc_trans$A23.8))
+
+anova(lmer(log(A23.8+1)~ Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A23.8+1)~ E_Latitudeabs+I(E_Latitudeabs^2)+Range*T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A23.8+1)~ E_Latitudeabs+I(E_Latitudeabs^2)+Range+T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A23.8+1)~ E_Latitudeabs+Range+T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A23.8+1)~ Range+T_Sla+ (1|q) , data = pc_trans), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m=lmer(log(A23.8+1)~ Range+T_Sla+ (1|q) , data = pc_trans)
+visreg(m, by="Range", xvar="T_Sla",overlay=T)
+testInteractions(m,pairwise="Range")
+
+
+```
+
+
+*Jasmonate divided by shoot biomass (extrapolated from mom)*
+---
+
+```{r}
+phenol_proxy1 = phenol_proxy[which(phenol_proxy$JASMONATE=="1"),]
+phenol_proxy2 = phenol_proxy[which(phenol_proxy$JASMONATE=="2"),]
+
+#TOTAL_PEAKS
+hist((phenol_proxy$TOTAL_PEAKS))
+step(lmer((TOTAL_PEAKS)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+#m= lmer(TOTAL_PEAKS~JASMONATE +  E_Latitudeabs +  I(E_Latitudeabs^2) + (1 | q), data = phenol_proxy)
+#visreg(m, by="JASMONATE", xvar="E_Latitudeabs", overlay=T)
+
+#TOTAL 
+hist(sqrt(phenol_proxy$TOTAL))
+step(lmer(sqrt(TOTAL)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(TOTAL)~JASMONATE +  (1 | q), data = phenol_proxy)
+visreg(m)
+
+
+#PEAK1 
+hist(sqrt(phenol_proxy$PEAK1))
+step(lmer(sqrt(PEAK1)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer((PEAK1)~JASMONATE +  (1 | q), data = phenol_proxy)
+visreg(m)
+
+#PEAK2
+hist(sqrt(phenol_proxy$PEAK2))
+step(lmer(sqrt(PEAK2)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK2)~JASMONATE +  (1 | q), data = phenol_proxy)
+visreg(m)
+
+#PEAK3
+hist(sqrt(phenol_proxy$PEAK3))
+step(lmer(sqrt(PEAK3)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK3)~JASMONATE +  E_Latitudeabs+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="E_Latitudeabs")
+
+#PEAK4
+hist(sqrt(phenol_proxy$PEAK4))
+step(lmer(sqrt(PEAK4)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK4)~JASMONATE +  E_Latitudeabs+I(E_Latitudeabs^2)+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="E_Latitudeabs")
+
+#PEAK5
+hist(sqrt(phenol_proxy$PEAK5))
+step(lmer(sqrt(PEAK5)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK3)~JASMONATE + Range+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="Range", overlay=T)
+
+#PEAK6
+hist(sqrt(phenol_proxy$PEAK6))
+step(lmer(sqrt(PEAK6)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK6)~JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="Range", overlay=T)
+
+#PEAK7
+hist(sqrt(phenol_proxy$PEAK7))
+step(lmer(sqrt(PEAK7)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK7)~JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="Range", overlay=T)
+
+
+#PEAK8
+hist(sqrt(phenol_proxy$PEAK8))
+step(lmer(sqrt(PEAK8)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK8)~JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="Range", overlay=T)
+
+
+#PEAK9
+hist(sqrt(phenol_proxy$PEAK9))
+step(lmer(sqrt(PEAK9)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK9)~JASMONATE*  E_Latitudeabs+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="E_Latitudeabs")
+
+#PEAK10
+hist(sqrt(phenol_proxy$PEAK10))
+anova(lmer(sqrt(PEAK10)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE*Range+Range*E_Latitudeabs+JASMONATE*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ Range*E_Latitudeabs+JASMONATE*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ Range*E_Latitudeabs+JASMONATE+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ Range+E_Latitudeabs+JASMONATE+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ Range+E_Latitudeabs+JASMONATE+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ Range+JASMONATE+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+
+#PEAK11
+hist(sqrt(phenol_proxy$PEAK11))
+step(lmer(sqrt(PEAK11)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+#m= lmer(sqrt(PEAK11)~JASMONATE +  E_Latitudeabs+Range+(1 | q), data = phenol_proxy)
+#visreg(m, by="JASMONATE", xvar="Range", overlay=T)
+```
+
+
+
+
+*Jasmonate divided by shoot biomass, in response to lat and sla (extrapolated from mom)*
+---
+
+```{r}
+phenol_proxy1 = phenol_proxy[which(phenol_proxy$JASMONATE=="1"),]
+phenol_proxy2 = phenol_proxy[which(phenol_proxy$JASMONATE=="2"),]
+phenol_proxy$sla_lg = log(phenol)
+
+#TOTAL_PEAKS
+hist((phenol_proxy$TOTAL_PEAKS))
+step(lmer((TOTAL_PEAKS)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*JASMONATE*T_Sla+(1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+
+#m= lmer(TOTAL_PEAKS~JASMONATE +  E_Latitudeabs +  I(E_Latitudeabs^2) + (1 | q), data = phenol_proxy)
+#visreg(m, by="JASMONATE", xvar="E_Latitudeabs", overlay=T)
+
+#TOTAL 
+hist(sqrt(phenol_proxy$TOTAL))
+step(lmer(sqrt(TOTAL)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*JASMONATE*T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(TOTAL)~JASMONATE +  (1 | q), data = phenol_proxy)
+visreg(m)
+
+
+#PEAK1 
+hist(sqrt(phenol_proxy$PEAK1))
+step(lmer(sqrt(PEAK1)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*JASMONATE*T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer((PEAK1)~JASMONATE +  (1 | q), data = phenol_proxy)
+visreg(m)
+
+#PEAK2
+hist(sqrt(phenol_proxy$PEAK2))
+step(lmer(sqrt(PEAK2)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*JASMONATE*T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK2)~JASMONATE +  (1 | q), data = phenol_proxy)
+visreg(m)
+
+#PEAK3
+hist(sqrt(phenol_proxy$PEAK3))
+step(lmer(sqrt(PEAK3)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*JASMONATE*T_Sla+(1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK3)~JASMONATE +  E_Latitudeabs+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="E_Latitudeabs")
+
+#PEAK4
+hist(sqrt(phenol_proxy$PEAK4))
+step(lmer(sqrt(PEAK4)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*JASMONATE*T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK4)~JASMONATE +  E_Latitudeabs+I(E_Latitudeabs^2)+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="E_Latitudeabs")
+
+#PEAK5
+hist(sqrt(phenol_proxy$PEAK5))
+step(lmer(sqrt(PEAK5)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*JASMONATE*T_Sla+(1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK5)~JASMONATE*T_Sla + Range+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="T_Sla", overlay=T)
+
+#PEAK6
+hist(sqrt(phenol_proxy$PEAK6))
+step(lmer(sqrt(PEAK6)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*JASMONATE*T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK6)~JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="Range", overlay=T)
+
+#PEAK7
+hist(sqrt(phenol_proxy$PEAK7))
+step(lmer(sqrt(PEAK7)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*JASMONATE*T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK7)~JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="Range", overlay=T)
+
+
+#PEAK8
+hist(sqrt(phenol_proxy$PEAK8))
+step(lmer(sqrt(PEAK8)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*JASMONATE*T_Sla+(1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK8)~JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="Range", overlay=T)
+
+
+#PEAK9
+hist(sqrt(phenol_proxy$PEAK9))
+step(lmer(sqrt(PEAK9)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*JASMONATE*T_Sla+(1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+m= lmer(sqrt(PEAK9)~JASMONATE*  E_Latitudeabs+(1 | q), data = phenol_proxy)
+visreg(m, by="JASMONATE", xvar="E_Latitudeabs")
+
+#PEAK10
+hist(sqrt(phenol_proxy$PEAK10))
+anova(lmer(sqrt(PEAK10)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*JASMONATE*T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*T_Sla+JASMONATE*T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE*Range+JASMONATE*E_Latitudeabs+Range*E_Latitudeabs+Range*T_Sla+JASMONATE*T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE*Range+JASMONATE*E_Latitudeabs+Range*E_Latitudeabs+JASMONATE*T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE*Range+JASMONATE*E_Latitudeabs+JASMONATE*T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(sqrt(PEAK10)~ JASMONATE*Range+JASMONATE*E_Latitudeabs+T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE*Range+E_Latitudeabs+T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE+Range+E_Latitudeabs+T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE+Range+T_Sla+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE+Range+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(PEAK10)~ JASMONATE+ (1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+  #PEAK11
+hist(sqrt(phenol_proxy$PEAK11))
+step(lmer(sqrt(PEAK11)~ JASMONATE*Range*E_Latitudeabs+I(E_Latitudeabs^2)+Range*JASMONATE*T_Sla+(1|q), data = phenol_proxy),keep.effs="JASMONATE",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+#m= lmer(sqrt(PEAK11)~JASMONATE +  E_Latitudeabs+Range+(1 | q), data = phenol_proxy)
+#visreg(m, by="JASMONATE", xvar="Range", overlay=T)
+```
+
+
+*Trade-offs pops, no lat (because at same pop?) NOT USED*
+---
+```{r}
+step(lmer(sqrt(T_maxHeight_cm)~(Peaks)*Range + (1|q), data=pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(sqrt(T_maxHeight_cm)~(Peaks)*Range + (1|q), data=pc_meanC)
+visreg(m, xvar="Peaks", by="Range", overlay=T)
+#Tall plants have more peaks
+
+step(lmer((T_MaxSlope_cm_Day)~(Peaks)*Range + (1|q), data=pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((T_MaxSlope_cm_Day)~(Peaks)*Range + (1|q), data=pc_meanC)
+visreg(m, xvar="Peaks", by="Range")
+#fast growing plants have more peaks
+
+step(lmer((T_fit_all)~(Peaks)*Range + (1|q), data=pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((T_fit_all)~(Peaks)+ (1|q), data=pc_meanC)
+visreg(m, xvar="Peaks")
+#high fitness plants have more peaks
+
+step(lmer(T_repal~(Peaks)*Range + (1|q), data=pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((T_repal)~(Peaks)+ Range+(1|q), data=pc_meanC)
+visreg(m, xvar="Peaks", by="Range")
+#higher peaks means lower relative fitness
+
+step(lmer(sqrt(T_Sla)~(Peaks)*Range + (1|q), data=pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((sqrt(T_Sla))~(Peaks)+ (1|q), data=pc_meanC)
+visreg(m, xvar="Peaks")
+#lower SLA with more peaks
+
+
+##PEAKAREA
+pc_meanC$PeakArea_lg = log(pc_meanC$PeakArea)
+
+step(lmer((T_maxHeight_cm)~(PeakArea_lg)*Range+ (1|q), data=pc_meanC) ,reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+#no effect PA
+
+anova(lmer(T_MaxSlope_cm_Day~(PeakArea_lg)*Range + (1|q), data=pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(T_MaxSlope_cm_Day~(PeakArea_lg)+Range + (1|q), data=pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+#no effect PA
+
+step(lmer(T_fit_all~(PeakArea_lg)*Range + (1|q), data=pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((T_fit_all)~log(PeakArea) + (1|q), data=pc_meanC)
+visreg(m, xvar="PeakArea")
+#higher fitness with higher peak area
+
+step(lmer(T_repal~(PeakArea_lg)*Range + (1|q), data=pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+#no effect PA
+
+anova(lmer(sqrt(T_Sla)~(PeakArea_lg)*Range + (1|q), data=pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(T_Sla)~(PeakArea_lg)+Range + (1|q), data=pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(T_Sla)~(PeakArea_lg)+ (1|q), data=pc_meanC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+```
+
+
+
+*Trade-offs inds, no lat (because at same pop)*
+---
+```{r}
+step(lmer(sqrt(T_maxHeight_cm)~(Peaks)*Range + (1|Pop) +(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(sqrt(T_maxHeight_cm)~(Peaks)+Range + (1|Pop)+(1|q),data=phenC)
+visreg(m, xvar="Peaks", by="Range", overlay=T)
+#Tall plants have more peaks
+
+step(lmer((T_MaxSlope_cm_Day)~(Peaks)*Range + (1|Pop)+(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((T_MaxSlope_cm_Day)~(Peaks)+Range + (1|Pop)+(1|q), data=phenC)
+visreg(m, xvar="Peaks", by="Range")
+#fast growing plants have more peaks
+
+step(lmer((T_fit_all)~(Peaks)*Range + (1|Pop)+(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((T_fit_all)~(Peaks)+ (1|Pop)+(1|q), data=phenC)
+visreg(m, xvar="Peaks")
+#high fitness plants have more peaks
+
+step(lmer(log(T_Sla)~(Peaks)*Range + (1|Pop), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((log(T_Sla))~(Peaks)+ (1|Pop)+(1|q), data=phenC)
+visreg(m, xvar="Peaks")
+#lower SLA with more peaks
+
+
+##PEAKAREA
+phenC$PeakArea_sq = sqrt(phenC$PeakArea)
+
+step(lmer(sqrt(T_maxHeight_cm)~(PeakArea_sq)*Range+ (1|Pop)+(1|q), data=phenC) ,reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(sqrt(T_maxHeight_cm)~sqrt(PeakArea)+Range+ (1|Pop)+(1|q), data=phenC)
+visreg(m, by="Range", xvar="PeakArea")
+#Tall plants have more peakarea
+
+step(lmer(T_MaxSlope_cm_Day~(PeakArea_sq)*Range + (1|Pop)+(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(T_MaxSlope_cm_Day~sqrt(PeakArea)+Range+ (1|Pop)+(1|q), data=phenC)
+visreg(m, by="Range", xvar="PeakArea")
+#Fast growing plants have more peakarea
+
+step(lmer(T_fit_all~(PeakArea_sq)*Range + (1|Pop)+(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((T_fit_all)~sqrt(PeakArea) + (1|Pop)+(1|q), data=phenC)
+visreg(m, xvar="PeakArea")
+#higher fitness with higher peak area
+
+anova(lmer(log(T_Sla)~(PeakArea_sq)*Range + (1|Pop)+(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(T_Sla)~(PeakArea_sq)+Range + (1|Pop)+(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(T_Sla)~(PeakArea_sq)+ (1|Pop)+(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((log(T_Sla))~sqrt(PeakArea)+ (1|Pop)+(1|q), data=phenC)
+visreg(m, xvar="PeakArea")
+
+##TRICHOMES
+phenC$Trichome_lg = log(phenC$Trichome)
+
+step(lmer(sqrt(T_maxHeight_cm)~(Trichome_lg)*Range+ (1|Pop)+(1|q), data=phenC) ,reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(sqrt(T_maxHeight_cm)~log(Trichome)+Range+ (1|Pop)+(1|q), data=phenC)
+visreg(m, by="Range", xvar="PeakArea")
+
+step(lmer(T_MaxSlope_cm_Day~(Trichome_lg)*Range + (1|Pop)+(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(T_MaxSlope_cm_Day~log(Trichome)+(1|Pop)+(1|q), data=phenC)
+
+step(lmer(T_fit_all~(Trichome_lg)*Range + (1|Pop)+(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((T_fit_all)~log(Trichome) + (1|Pop)+(1|q), data=phenC)
+visreg(m, xvar="Trichome")
+
+anova(lmer(log(T_Sla)~(Trichome_lg)*Range + (1|Pop)+(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(T_Sla)~(Trichome_lg)+Range + (1|Pop)+(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, Trichome_lg = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(T_Sla)~(Trichome_lg)+ (1|Pop)+(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((log(T_Sla))~log(Trichome)+ (1|Pop)+(1|q), data=phenC)
+visreg(m, xvar="Trichome")
+```
+
+
+
+*Trade-offs inds, shoot biom, to account for plant size associatons*
+---
+
+```{r}
+phenC$T_shoot_biom_sq = sqrt(phenC$T_shoot_biom)
+
+step(lmer(sqrt(T_maxHeight_cm)~(Peaks)*Range + Range*T_shoot_biom_sq + (1|Pop) +(1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(sqrt(T_maxHeight_cm)~(Peaks)+Range*sqrt(T_shoot_biom) + (1|Pop) +(1|q), data=phenC)
+visreg(m, xvar="Peaks", by="Range", overlay=T)
+#Tall plants have more peaks
+
+step(lmer((T_MaxSlope_cm_Day)~(Peaks)*Range+ Range*T_shoot_biom_sq + (1|Pop) +(1|q), data=phenC),  reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(((T_MaxSlope_cm_Day))~(Peaks)+Range*sqrt(T_shoot_biom) + (1|Pop) +(1|q), data=phenC)
+visreg(m, xvar="Peaks", by="Range", overlay=T)
+#fast growing plants have more peaks
+
+step(lmer((T_fit_all)~(Peaks)*Range + Range*T_shoot_biom_sq + (1|Pop)+ (1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+step(lmer(log(T_Sla)~(Peaks)*Range + Range*T_shoot_biom_sq + (1|Pop)+ (1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((log(T_Sla))~(Peaks)+Range+sqrt(T_shoot_biom) + (1|Pop)+ (1|q), data=phenC)
+visreg(m, xvar="Peaks", by="Range", overlay=T)
+#lower SLA with more peaks
+
+
+##PEAKAREA
+phenC$PeakArea_sq = sqrt(phenC$PeakArea)
+
+step(lmer(sqrt(T_maxHeight_cm)~(PeakArea_sq)*Range+ Range*T_shoot_biom_sq + (1|Pop)+ (1|q), data=phenC) ,reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+
+step(lmer(T_MaxSlope_cm_Day~(PeakArea_sq)*Range + Range*T_shoot_biom_sq + (1|Pop)+ (1|q), data=phenC) ,reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(T_MaxSlope_cm_Day~sqrt(PeakArea)+Range*sqrt(T_shoot_biom)+(1|Pop)+(1|q), data=phenC)
+visreg(m, by="Range", xvar="PeakArea", overlay=T)
+interactionMeans(m, factor="Range", slope="sqrt(PeakArea)")
+#Fast growing plants have more peakarea
+
+phenC$PeakArea = phenC$PeakArea/1000000
+step(lmer(T_fit_all~(PeakArea_sq)*Range + Range*T_shoot_biom_sq + (1|Pop)+ (1|q), data=phenC) ,reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((T_fit_all)~sqrt(PeakArea)*Range+ Range * sqrt(T_shoot_biom) + (1|Pop)+(1|q), data=phenC)
+visreg(m, by="Range", xvar="PeakArea", overlay=T)
+interactionMeans(m, factor="Range", slope="sqrt(PeakArea)")
+#range differences
+
+step(lmer(log(T_Sla)~(PeakArea_sq)*Range + Range*T_shoot_biom_sq + (1|Pop)+ (1|q), data=phenC) ,reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(log(T_Sla)~sqrt(PeakArea)+Range+sqrt(T_shoot_biom)+(1|Pop)+(1|q), data=phenC)
+visreg(m, by="Range", xvar="PeakArea", overlay=T)
+interactionMeans(m, factor="Range", slope="sqrt(PeakArea)")
+
+
+
+###TRICHOMES
+phenC$Trichomes_lg = log(phenC$Trichome)
+
+step(lmer(sqrt(T_maxHeight_cm)~(Trichomes_lg)*Range+ Range*T_shoot_biom_sq + (1|Pop)+ (1|q), data=phenC), reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+#NO
+
+step(lmer(T_MaxSlope_cm_Day~(Trichomes_lg)*Range + Range*T_shoot_biom_sq + (1|Pop)+ (1|q), data=phenC),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(T_MaxSlope_cm_Day~log(Trichome)+Range*sqrt(T_shoot_biom)+(1|Pop)+(1|q), data=phenC)
+visreg(m, by="Range", xvar="Trichome", overlay=T)
+interactionMeans(m, factor="Range", slope="log(Trichome)")
+#Fast growing plants have more peakarea
+
+step(lmer(T_fit_all~(Trichomes_lg)*Range + Range*T_shoot_biom_sq + (1|Pop)+ (1|q), data=phenC) ,reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+#NA
+
+step(lmer(log(T_Sla)~(Trichomes_lg)*Range + Range*T_shoot_biom_sq + (1|Pop)+ (1|q), data=phenC) ,reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+
+###
+
+step(lmer(Peaks~(PeakArea_sq)*Range + Range*T_shoot_biom_sq + (1|Pop)+ (1|q), data=phenC) ,reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(Peaks ~ sqrt(PeakArea) * Range + sqrt(T_shoot_biom) +    (1 | Pop) + (1 | q),data = phenC)
+visreg(m, by="Range", xvar="PeakArea", overlay=T)
+
+step(lmer(log(Trichome)~(PeakArea_sq)*Range + Range*T_shoot_biom_sq + (1|Pop)+ (1|q), data=phenC) ,reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+# no association between trichomes and peakarea
+
+step(lmer(log(Trichome)~(Peaks)*Range + Range*T_shoot_biom_sq + (1|Pop)+ (1|q), data=phenC) ,reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+# no association between trichomes and peaks
+
+```
+
+
+
+*Trade-offs pops with latitude, NOT USED*
+---
+```{r}
+step(lmer(T_shoot_biom~(Peaks)*Range+Range*E_Latitudeabs + (1|q), data=pc_meanC), keep.effects="Peaks",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(T_shoot_biom~(Peaks)+E_Latitudeabs+ (1|q), data=pc_meanC)
+visreg(m, xvar="Peaks", overlay=T)
+#Tall plants have more peaks
+
+
+
+
+step(lmer(sqrt(T_maxHeight_cm)~(Peaks)*Range+Range*E_Latitudeabs + (1|q), data=pc_meanC), keep.effects="Peaks",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(sqrt(T_maxHeight_cm)~(Peaks)+Range*E_Latitudeabs+ (1|q), data=pc_meanC)
+visreg(m, xvar="Peaks", by="Range", overlay=T)
+#Tall plants have more peaks
+
+step(lmer((T_MaxSlope_cm_Day)~(Peaks)*Range+ Range*E_Latitudeabs + (1|q), data=pc_meanC),keep.effects="Peaks", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((T_MaxSlope_cm_Day)~(Peaks)+Range+E_Latitudeabs + (1|q), data=pc_meanC)
+visreg(m, xvar="Peaks", by="Range", overlay=T)
+#fast growing plants have more peaks
+
+step(lmer((T_fit_all)~(Peaks)*Range+Range*E_Latitudeabs + (1|q), data=pc_meanC), keep.effects="Peaks",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((T_fit_all)~(Peaks)+Range+E_Latitudeabs + (1|q), data=pc_meanC)
+visreg(m, xvar="Peaks", by="Range", overlay=T)
+#high fitness plants have more peaks
+
+step(lmer(T_repal~(Peaks)*Range+Range*E_Latitudeabs + (1|q), data=pc_meanC), keep.effects="Peaks",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+#no effect P
+
+step(lmer(sqrt(T_Sla)~(Peaks)*Range*E_Latitudeabs + (1|q), data=pc_meanC), keep.effects="Peaks",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((sqrt(T_Sla))~(Peaks)+Range+E_Latitudeabs + (1|q), data=pc_meanC)
+visreg(m, xvar="Peaks", by="Range")
+
+
+
+
+##PEAKAREA
+pc_meanC$PeakArea_lg = log(pc_meanC$PeakArea)
+pc_meanC$T_shoot_biom_sq = sqrt(pc_meanC$T_shoot_biom)
+phenC$PeakArea_sq = sqrt(phenC$PeakArea)
+phenC$T_shoot_biom_sq = sqrt(phenC$T_shoot_biom)
+
+
+step(lmer((T_maxHeight_cm)~(PeakArea_lg)*Range+Range*E_Latitudeabs + (1|q), data=pc_meanC) ,keep.effects="PeakArea_lg",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+#no effect PA
+
+step(lmer((T_maxHeight_cm)~(PeakArea_lg)*Range+Range*(T_shoot_biom_sq) + (1|q), data=pc_meanC) ,keep.effects="PeakArea_lg",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+#no effect PA
+
+
+#####
+
+step(lmer(T_MaxSlope_cm_Day~(PeakArea_lg)*Range+Range*E_Latitudeabs + (1|q), data=pc_meanC), keep.effects="PeakArea_lg",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+#no effect PA
+
+step(lmer(T_MaxSlope_cm_Day~(PeakArea_lg)*Range+Range*T_shoot_biom_sq + (1|q), data=pc_meanC), keep.effects="PeakArea_lg",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+#no effect PA
+
+step(lmer((T_MaxSlope_cm_Day)~PeakArea_sq*Range+Range*T_shoot_biom_sq + (1|Pop), data=phenC) ,keep.effects="PeakArea_lg",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m=lmer((T_MaxSlope_cm_Day)~PeakArea_sq + Range +     T_shoot_biom_sq + (1 | Pop) + Range:T_shoot_biom_sq, data=phenC)
+visreg(m, xvar="PeakArea_sq", by="Range")
+
+####
+step(lmer(T_fit_all~(PeakArea_lg)*Range+Range*E_Latitudeabs + (1|q), data=pc_meanC),keep.effects="PeakArea_lg", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((T_fit_all)~log(PeakArea)+Range*E_Latitudeabs + (1|q), data=pc_meanC)
+visreg(m, xvar="PeakArea", by="Range")
+#higher fitness with higher peak abundance
+
+step(lmer(T_fit_all~(PeakArea_lg)*Range+Range*T_shoot_biom_sq + (1|q), data=pc_meanC),keep.effects="PeakArea_lg", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+#no effect
+
+step(lmer(T_repal~(PeakArea_lg)*Range+Range*E_Latitudeabs + (1|q), data=pc_meanC),keep.effects="Peaks", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+#no effect PA
+
+step(lmer(sqrt(T_Sla)~(PeakArea_lg)*Range+Range*E_Latitudeabs + (1|q), data=pc_meanC), keep.effects="PeakArea_lg",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer(sqrt(T_Sla)~log(PeakArea)*Range+Range*E_Latitudeabs + (1|q), data=pc_meanC)
+visreg(m, xvar="PeakArea", by="Range", overlay=T)
+interactionMeans(m, factor="Range", slope="log(PeakArea)")
+
+step(lmer(sqrt(T_Sla)~(PeakArea_lg)*Range+Range*T_shoot_biom_sq + (1|q), data=pc_meanC), keep.effects="PeakArea_lg",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+#no effect PA
+
+
+step(lmer(log(T_Sla)~PeakArea_sq*Range+Range*T_shoot_biom_sq + (1|Pop), data=phenC) ,keep.effects="PeakArea_sq",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m=lmer((log(T_Sla))~PeakArea_sq + Range +     T_shoot_biom_sq + (1 | Pop) , data=phenC)
+visreg(m, xvar="PeakArea_sq", by="Range")
+```
+
+
+
+
+*herbivory NOT USED*
+---
+```{r}
+plot(herbSMART$Peaks~herbSMART$herb)
+plot(herbSMART$Peaks~herbSMART$herbyn)
+plot(herbSMART$Peaks~herbSMART$ophraella)
+
+plot(herbSMART$PeakArea~herbSMART$herb)
+plot(herbSMART$PeakArea~herbSMART$herbyn)
+plot(herbSMART$PeakArea~herbSMART$ophraella)
+
+plot((herbSMART$herbyn))
+
+plot(herbEU$Peaks~herbEU$herbyn)
+plot(herbAU$PeakArea~herbAU$herbyn)
+plot(herbEU$PeakArea~herbEU$herbyn)
+
+anova(lmer(log(Peaks)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="herbyn", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger") 
+anova(lmer(log(Peaks)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger") 
+anova(lmer(log(Peaks)~ herbyn+E_Latitudeabs+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger") 
+anova(lmer(log(Peaks)~ herbyn+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger") 
+
+anova(lmer(log(PeakArea)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ herbyn+E_Latitudeabs+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ herbyn+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(Trichome)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ herbyn+E_Latitudeabs+ (1|q) , data = herbSMART),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ herbyn+ (1|q) , data = herbSMART),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((A15.7)~  herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A15.7)~  herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A15.7)~  herbyn+E_Latitudeabs+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A15.7)~  herbyn+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(sqrt(A17.4)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A17.4)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A17.4)~ herbyn+E_Latitudeabs + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A17.4)~ herbyn + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(sqrt(A17.8)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A17.8)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A17.8)~ herbyn+E_Latitudeabs + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A17.8)~ herbyn + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(sqrt(A18.3)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.3)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.3)~ herbyn+E_Latitudeabs + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.3)~ herbyn+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(sqrt(A18.6)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.6)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.6)~ herbyn+E_Latitudeabs + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.6)~ herbyn+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(A18.8+1)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A18.8+1)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(A21.5)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A21.5)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A21.5)~ herbyn+E_Latitudeabs + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A21.5)~ herbyn+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(A21.9)~  herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A21.9)~  herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A21.9)~  herbyn+E_Latitudeabs + (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A21.9)~  herbyn+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(A23.8)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A23.8)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A23.8)~ herbyn+E_Latitudeabs+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A23.8)~ herbyn+ (1|q) , data = herbSMART),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+
+###ophraella
+
+
+anova(lmer(log(Peaks)~ ophraella*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="ophraella", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger") 
+anova(lmer(log(Peaks)~ ophraella+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger") 
+anova(lmer(log(Peaks)~ ophraella+E_Latitudeabs+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger") 
+anova(lmer(log(Peaks)~ ophraella+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger") 
+
+anova(lmer(log(PeakArea)~ ophraella*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ ophraella+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ ophraella+E_Latitudeabs+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ ophraella+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(Trichome)~ ophraella*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ ophraella+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ ophraella+E_Latitudeabs+ (1|q) , data = herbSMART),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ ophraella+ (1|q) , data = herbSMART),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((A15.7)~  ophraella*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A15.7)~  ophraella+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A15.7)~  ophraella+E_Latitudeabs+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A15.7)~  ophraella+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(sqrt(A17.4)~ ophraella*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A17.4)~ ophraella+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A17.4)~ ophraella+E_Latitudeabs + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A17.4)~ ophraella + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(sqrt(A17.8)~ ophraella*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A17.8)~ ophraella+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A17.8)~ ophraella+E_Latitudeabs + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A17.8)~ ophraella + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(sqrt(A18.3)~ ophraella*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.3)~ ophraella+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.3)~ ophraella+E_Latitudeabs + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.3)~ ophraella+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(sqrt(A18.6)~ ophraella*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.6)~ ophraella+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.6)~ ophraella+E_Latitudeabs + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.6)~ ophraella+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(A18.8+1)~ ophraella*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A18.8+1)~ ophraella+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(A21.5)~ ophraella*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A21.5)~ ophraella+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A21.5)~ ophraella+E_Latitudeabs + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A21.5)~ ophraella+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(A21.9)~  ophraella*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A21.9)~  ophraella+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A21.9)~  ophraella+E_Latitudeabs + (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A21.9)~  ophraella+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(A23.8)~ ophraella*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A23.8)~ ophraella+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A23.8)~ ophraella+E_Latitudeabs+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A23.8)~ ophraella+ (1|q) , data = herbSMART),keep.effs="ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+
+###
+
+anova(lmer(log(Peaks)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbAU),keep.effs="herbyn", reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger") 
+anova(lmer(log(Peaks)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger") 
+anova(lmer(log(Peaks)~ herbyn+E_Latitudeabs+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger") 
+anova(lmer(log(Peaks)~ herbyn+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger") 
+
+anova(lmer(log(PeakArea)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ herbyn+E_Latitudeabs+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ herbyn+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((Trichome)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((Trichome)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((Trichome)~ herbyn+E_Latitudeabs+ (1|q) , data = herbAU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((Trichome)~ herbyn+ (1|q) , data = herbAU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((A15.7)~  herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A15.7)~  herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A15.7)~  herbyn+E_Latitudeabs+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A15.7)~  herbyn+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(A17.4)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A17.4)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A17.4)~ herbyn+E_Latitudeabs + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A17.4)~ herbyn + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(A17.8)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A17.8)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A17.8)~ herbyn+E_Latitudeabs + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A17.8)~ herbyn + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(sqrt(A18.3)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.3)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.3)~ herbyn+E_Latitudeabs + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.3)~ herbyn+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(sqrt(A18.6)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.6)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.6)~ herbyn+E_Latitudeabs + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.6)~ herbyn+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(A18.8+1)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(A18.8+1)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((A21.5)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A21.5)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A21.5)~ herbyn+E_Latitudeabs + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A21.5)~ herbyn+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((A21.9)~  herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A21.9)~  herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A21.9)~  herbyn+E_Latitudeabs + (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A21.9)~  herbyn+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((A23.8)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A23.8)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A23.8)~ herbyn+E_Latitudeabs+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A23.8)~ herbyn+ (1|q) , data = herbAU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+
+
+
+###
+
+anova(lmer(log(Peaks)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Peaks)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Peaks)~ herbyn+E_Latitudeabs + (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Peaks)~ herbyn+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(PeakArea)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ herbyn+E_Latitudeabs+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(PeakArea)~ herbyn + (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(log(Trichome)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ herbyn+E_Latitudeabs+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(log(Trichome)~ herbyn+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+
+anova(lmer((A15.7)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A15.7)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A15.7)~ herbyn+E_Latitudeabs+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A15.7)~ herbyn+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+m = lmer((A15.7)~ herbyn+ (1|q) , data = herbEU)
+interactionMeans(m)
+
+anova(lmer((log(A17.4))~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((log(A17.4))~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((log(A17.4))~ herbyn+E_Latitudeabs+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((log(A17.4))~ herbyn+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((log(A17.8))~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((log(A17.8))~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((log(A17.8))~ herbyn+E_Latitudeabs+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((log(A17.8))~ herbyn+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((sqrt(A18.3))~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((sqrt(A18.3))~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((sqrt(A18.3))~ herbyn+E_Latitudeabs+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.3)~ herbyn+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((A18.6)~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A18.6)~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2) + (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A18.6)~ herbyn+E_Latitudeabs + (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((A18.6)~ herbyn+ (1|q) , data = herbEU),keep.effs="herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((sqrt(A18.8))~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((sqrt(A18.8))~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((sqrt(A18.8))~ herbyn+E_Latitudeabs+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A18.8)~ herbyn+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((sqrt(A21.5))~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((sqrt(A21.5))~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((sqrt(A21.5))~ herbyn+E_Latitudeabs+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A21.5)~ herbyn+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((log(A21.9))~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((log(A21.9))~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((log(A21.9))~ herbyn+E_Latitudeabs+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((log(A21.9))~ herbyn+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer((sqrt(A23.8))~ herbyn*E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((sqrt(A23.8))~ herbyn+E_Latitudeabs+I(E_Latitudeabs^2)+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer((sqrt(A23.8))~ herbyn+E_Latitudeabs+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(sqrt(A23.8)~ herbyn+ (1|q) , data = herbEU),reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+```
+
+*herb jas NOT USED*
+---
+
+```{r}
+plot(jasherEU$TOTAL_PEAKS~jasherEU$herbyn*jasherEU$JASMONATE)
+plot(jasherSM$TOTAL_PEAKS~jasherSM$herbyn*jasherSM$JASMONATE)
+
+step(lmer(TOTAL_PEAKS~herbyn*JASMONATE*E_Latitudeabs+I(E_Latitudeabs)^2 +(1|q), data=jasherSM),keep.effs = "JASMONATE:herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(TOTAL~herbyn*JASMONATE*E_Latitudeabs+I(E_Latitudeabs)^2 +(1|q), data=jasherSM),keep.effs = "JASMONATE:herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(TOTAL~herbyn*JASMONATE+herbyn*E_Latitudeabs+JASMONATE*E_Latitudeabs+I(E_Latitudeabs)^2 +(1|q), data=jasherSM),keep.effs = "JASMONATE:herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(TOTAL~herbyn*JASMONATE+herbyn*E_Latitudeabs+I(E_Latitudeabs)^2 +(1|q), data=jasherSM),keep.effs = "JASMONATE:herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(TOTAL~herbyn*JASMONATE+E_Latitudeabs+I(E_Latitudeabs)^2 +(1|q), data=jasherSM),keep.effs = "JASMONATE:herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+anova(lmer(TOTAL~herbyn*JASMONATE+(1|q), data=jasherSM),keep.effs = "JASMONATE:herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(TOTAL_PEAKS~ophraella*JASMONATE+(1|q), data=jasherSM),keep.effs = "JASMONATE:herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+anova(lmer(TOTAL~ophraella*JASMONATE+(1|q), data=jasherSM),keep.effs = "JASMONATE:ophraella",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+
+step(lmer(TOTAL_PEAKS~herbyn*JASMONATE*E_Latitudeabs+I(E_Latitudeabs)^2 +(1|q), data=jasherEU),keep.effs = "JASMONATE:herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+step(lmer(TOTAL~herbyn*JASMONATE*E_Latitudeabs+I(E_Latitudeabs)^2 +(1|q), data=jasherEU),keep.effs = "JASMONATE:herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+step(lmer(TOTAL_PEAKS~herbyn*JASMONATE*E_Latitudeabs+I(E_Latitudeabs)^2 +(1|q), data=jasherAU),keep.effs = "JASMONATE:herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+  
+step(lmer(sqrt(TOTAL)~herbyn*JASMONATE*E_Latitudeabs+I(E_Latitudeabs)^2 +(1|q), data=jasherAU),keep.effs = "JASMONATE:herbyn",reduce.fixed = TRUE, reduce.random = FALSE, alpha.fixed = 0.05,type =3, ddf="Kenward-Roger")
+
+```
+
+##END SCRIPT##
+===
